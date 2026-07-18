@@ -1,0 +1,78 @@
+{
+  "name": "editor-filter",
+  "publisher": "local",
+  "displayName": "Line Filter Prototype",
+  "description": "Throwaway prototype for writable filtered virtual documents.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "enabledApiProposals": [
+    "editorInsets"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "editor-filter.filterThisFile",
+        "title": "Filter Lines: Filter This File"
+      },
+      {
+        "command": "editor-filter.searchProject",
+        "title": "Filter Lines: Search Project with fff"
+      },
+      {
+        "command": "editor-filter.changeFilter",
+        "title": "Filter Lines: Change Filter"
+      },
+      {
+        "command": "editor-filter.openSource",
+        "title": "Filter Lines: Open Source Location"
+      },
+      {
+        "command": "editor-filter.showState",
+        "title": "Filter Lines: Show Prototype State"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "editor-filter.openSource",
+        "key": "cmd+enter",
+        "mac": "cmd+enter",
+        "when": "resourceScheme == linefilter"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "prototype": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
+    "pretest": "pnpm run compile && pnpm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.125.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "@ff-labs/fff-node": "^0.10.0"
+  }
+}
