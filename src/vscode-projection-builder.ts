@@ -1,0 +1,56 @@
+import * as vscode from 'vscode';
+import { FffProjectSearch } from './project-search';
+import { ProjectionDocument } from './projection-document';
+import {
+	ProjectionBuild,
+	ProjectionBuilder,
+	ProjectionTarget,
+} from './projection-sessions';
+import { FilterQuery } from './projection-document';
+
+export class VscodeProjectionBuilder implements ProjectionBuilder {
+	constructor(private readonly projectSearch: FffProjectSearch) {}
+
+	async build(
+		target: ProjectionTarget,
+		filter: FilterQuery,
+	): Promise<ProjectionBuild> {
+		if (target.kind === 'file') {
+			const source = await vscode.workspace.openTextDocument(
+				vscode.Uri.parse(target.sourceUri),
+			);
+			return {
+				projection: ProjectionDocument.forFile({
+					sourceUri: target.sourceUri,
+					sourceText: source.getText(),
+					filter,
+				}),
+				languageId: source.languageId,
+			};
+		}
+
+		const root = vscode.Uri.parse(target.rootUri);
+		if (!filter.text) {
+			return {
+				projection: ProjectionDocument.message('', {
+					label: `Project search — ${root.fsPath}`,
+					sourceUri: target.rootUri,
+				}),
+			};
+		}
+
+		const result = await this.projectSearch.search({
+			rootUri: target.rootUri,
+			rootPath: root.fsPath,
+			filter,
+			resolveUri: relativePath =>
+				vscode.Uri.joinPath(root, relativePath).toString(),
+		});
+		return {
+			projection: ProjectionDocument.forProject(result.matches),
+			message: result.hasMore
+				? `Showing the first ${result.matches.length} matches`
+				: undefined,
+		};
+	}
+}

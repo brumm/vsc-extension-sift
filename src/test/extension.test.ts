@@ -1,15 +1,11 @@
-import * as assert from 'assert';
-
-// You can import and use all API from the 'vscode' module
-// as well as import your extension to test it
+import * as assert from 'node:assert/strict';
 import * as vscode from 'vscode';
-// import * as myExtension from '../../extension';
 
 suite('Extension Test Suite', () => {
-	vscode.window.showInformationMessage('Start all tests.');
-
-	test('Sample test', () => {
-		assert.strictEqual(-1, [1, 2, 3].indexOf(5));
-		assert.strictEqual(-1, [1, 2, 3].indexOf(0));
+	test('extension activates', async () => {
+		const extension = vscode.extensions.getExtension('local.editor-filter');
+		assert.ok(extension, 'local.editor-filter should be installed in the test host');
+		await extension.activate();
+		assert.equal(extension.isActive, true);
 	});
 });

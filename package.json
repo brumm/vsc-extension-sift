@@ -56,7 +56,8 @@
     "prototype": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "node --test out/test/*.unit.js && vscode-test",
+    "test:unit": "pnpm run compile && node --test out/test/*.unit.js"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

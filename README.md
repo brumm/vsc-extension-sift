@@ -39,7 +39,7 @@ For the multi-file experiment, run **Filter Lines: Search Project with fff**. Th
 - A dirty projection must be saved before changing its filter. If the query changes while dirty, the pending refresh runs after save.
 - Saving a projection also saves each affected source document, including any unrelated unsaved changes already present in those documents.
 - Source files are conflict-checked line by line before the workspace edit, but this throwaway prototype does not roll back if an individual source-document save fails afterward.
-- Single-file filtering uses literal, case-insensitive matching. Project search uses `fff` plain mode with smart case and supports its path constraints.
+- Single-file and project filtering are case-insensitive unless **Match Case** is enabled. Project search uses `fff` and supports its path constraints.
 - Source numbers cannot occupy VS Code's native gutter and may not be announced by screen readers.
 - Syntax highlighting is best effort; omitted lexical context can produce incorrect coloring.
 - A virtual document has one language ID, so mixed-language project results use the language of the editor from which search was invoked.
@@ -56,3 +56,11 @@ After trying the experiments, record what felt acceptable or broken here before 
 - Syntax fidelity:
 - Restart restoration:
 - Overall decision:
+
+## Architecture
+
+- `projection-document.ts` is the pure projection seam. It owns canonical mapped and annotation rows, navigation, terminal-newline normalization, and save planning.
+- `projection-sessions.ts` owns valid file/project targets, refresh revisions, dirty save-then-refresh ordering, persistence, and cleanup.
+- `projection-save.ts`, `projection-file-system.ts`, `projection-filter-insets.ts`, and `project-search.ts` adapt VS Code and `fff` at external seams.
+- `vscode-projection-feature.ts` presents session snapshots through commands, editors, decorations, and the inline filter inset.
+- `extension.ts` is the composition root.
