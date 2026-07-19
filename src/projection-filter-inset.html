@@ -235,12 +235,15 @@
     })
     renderOptions()
     renderContext()
-    input.addEventListener('input', () => vscode.postMessage({ type: 'query', value: input.value }))
+    input.addEventListener('input', () => {
+      vscode.postMessage({ type: 'query', value: input.value })
+    })
+
     input.addEventListener('keydown', event => {
       if (event.key === 'Escape') {
         event.preventDefault()
         vscode.postMessage({ type: 'closeEditor' })
-      } else if (event.key === 'ArrowDown') {
+      } else if (event.metaKey && event.key === 'ArrowDown') {
         event.preventDefault()
         vscode.postMessage({ type: 'focusEditor' })
       } else if (event.altKey && event.metaKey) {
@@ -275,7 +278,10 @@
       }
     })
     vscode.postMessage({ type: 'ready' })
-    if (initialState.focusInput) input.focus()
+
+    if (initialState.focusInput) {
+      input.focus()
+    }
   </script>
 </body>
 

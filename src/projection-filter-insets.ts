@@ -137,15 +137,15 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         }
         return
       }
-      case 'focusEditor':
-        void vscode.commands
-          .executeCommand('workbench.action.focusActiveEditorGroup')
-          .then(() => {
-            const documentStart = new vscode.Position(0, 0)
-            editor.selection = new vscode.Selection(documentStart, documentStart)
-            editor.revealRange(new vscode.Range(documentStart, documentStart))
-          })
+      case 'focusEditor': {
+        const documentStart = new vscode.Position(0, 0)
+        editor.selection = new vscode.Selection(documentStart, documentStart)
+        editor.revealRange(new vscode.Range(documentStart, documentStart))
+        vscode.commands.executeCommand(
+          'workbench.action.focusActiveEditorGroup',
+        )
         return
+      }
       case 'openSource':
         this.callbacks.onOpenSource()
         return
@@ -166,7 +166,10 @@ export class ProjectionFilterInsets implements vscode.Disposable {
   }
 }
 
-function readFilterQuery(message: object, text: string): FilterQuery | undefined {
+function readFilterQuery(
+  message: object,
+  text: string,
+): FilterQuery | undefined {
   if (
     'matchCase' in message &&
     typeof message.matchCase === 'boolean' &&
@@ -207,9 +210,10 @@ function filterInsetHtml(
   }).replaceAll('<', '\\u003c')
   const placeholder =
     session.target.kind === 'project' ? 'Search project' : 'Filter lines'
-  const projectSearchButton = session.target.kind === 'file'
-    ? `<button type="button" data-action="search-project" title="Search in Project" aria-label="Search in Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
-    : ''
+  const projectSearchButton =
+    session.target.kind === 'file'
+      ? `<button type="button" data-action="search-project" title="Search in Project" aria-label="Search in Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
+      : ''
 
   return insetTemplate
     .replaceAll('__SIFT_NONCE__', nonce)
