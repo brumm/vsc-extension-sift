@@ -3,6 +3,15 @@ export interface FilterQuery {
 	matchCase: boolean;
 	wholeWord: boolean;
 	useRegex: boolean;
+	contextLines: number;
+}
+
+export const maximumContextLines = 5;
+
+export function normalizeContextLines(value: unknown): number {
+	return typeof value === 'number' && Number.isFinite(value)
+		? Math.min(maximumContextLines, Math.max(0, Math.trunc(value)))
+		: 0;
 }
 
 export interface SourcePosition {
@@ -73,12 +82,19 @@ export class ProjectionDocument {
 	static forFile(input: FileProjectionInput): ProjectionDocument {
 		const sourceLines = input.sourceText.split(/\r?\n/);
 		const matcher = makeLineMatcher(input.filter);
+		const matchingLines = sourceLines.map(matcher);
+		const contextLines = normalizeContextLines(input.filter.contextLines);
 		const rows: ProjectionRow[] = [];
 		const content: string[] = [];
 
 		for (let line = 0; line < sourceLines.length; line += 1) {
 			const text = sourceLines[line];
-			if (matcher(text)) {
+			const contextStart = Math.max(0, line - contextLines);
+			const contextEnd = Math.min(
+				matchingLines.length,
+				line + contextLines + 1,
+			);
+			if (matchingLines.slice(contextStart, contextEnd).some(Boolean)) {
 				content.push(text);
 				rows.push({
 					kind: 'mapped',

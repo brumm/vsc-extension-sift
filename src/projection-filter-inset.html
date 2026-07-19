@@ -103,6 +103,45 @@
       color: var(--vscode-inputOption-activeForeground);
     }
 
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    button:disabled:hover {
+      background: transparent;
+    }
+
+    .context-control {
+      box-sizing: border-box;
+      height: 21px;
+      display: flex;
+      align-items: stretch;
+      overflow: hidden;
+      border: 1px solid var(--vscode-input-border, transparent);
+      border-radius: 2px;
+    }
+
+    .context-control button {
+      width: 20px;
+      height: 19px;
+      border: 0;
+      border-radius: 0;
+      font: inherit;
+    }
+
+    .context-value {
+      box-sizing: border-box;
+      min-width: 20px;
+      display: grid;
+      place-items: center;
+      border-right: 1px solid var(--vscode-input-border, transparent);
+      border-left: 1px solid var(--vscode-input-border, transparent);
+      color: var(--vscode-input-foreground);
+      line-height: 19px;
+      user-select: none;
+    }
+
     .codicon,
     .codicon svg {
       display: block;
@@ -130,6 +169,13 @@
           aria-pressed="false">
           <span class="codicon codicon-regex" aria-hidden="true">__SIFT_REGEX_ICON__</span>
         </button>
+        <div class="context-control" role="group" aria-label="Context lines">
+          <button type="button" data-action="decrease-context" title="Decrease Context Lines"
+            aria-label="Decrease Context Lines">−</button>
+          <span class="context-value" data-context-value aria-label="Context Lines: 0">0</span>
+          <button type="button" data-action="increase-context" title="Increase Context Lines"
+            aria-label="Increase Context Lines">+</button>
+        </div>
         __SIFT_PROJECT_SEARCH_BUTTON__
       </div>
     </div>
@@ -140,7 +186,16 @@
     const input = document.getElementById('query')
     const optionButtons = [...document.querySelectorAll('[data-option]')]
     const projectSearchButton = document.querySelector('[data-action="search-project"]')
-    const options = { matchCase: initialState.matchCase, wholeWord: initialState.wholeWord, useRegex: initialState.useRegex }
+    const decreaseContextButton = document.querySelector('[data-action="decrease-context"]')
+    const increaseContextButton = document.querySelector('[data-action="increase-context"]')
+    const contextValue = document.querySelector('[data-context-value]')
+    const maximumContextLines = initialState.maximumContextLines
+    const options = {
+      matchCase: initialState.matchCase,
+      wholeWord: initialState.wholeWord,
+      useRegex: initialState.useRegex,
+      contextLines: initialState.contextLines,
+    }
     input.value = initialState.query
     const renderOptions = () => {
       for (const button of optionButtons) {
@@ -150,11 +205,25 @@
       }
     }
     const emitOptions = () => vscode.postMessage({ type: 'options', ...options })
+    const renderContext = () => {
+      contextValue.textContent = String(options.contextLines)
+      contextValue.setAttribute('aria-label', `Context Lines: ${options.contextLines}`)
+      decreaseContextButton.disabled = options.contextLines === 0
+      increaseContextButton.disabled = options.contextLines === maximumContextLines
+    }
+    const adjustContext = delta => {
+      options.contextLines = Math.min(maximumContextLines, Math.max(0, options.contextLines + delta))
+      renderContext()
+      emitOptions()
+      input.focus()
+    }
     const toggleOption = option => {
       options[option] = !options[option]
       renderOptions()
       emitOptions()
     }
+    decreaseContextButton.addEventListener('click', () => adjustContext(-1))
+    increaseContextButton.addEventListener('click', () => adjustContext(1))
     for (const button of optionButtons) {
       button.addEventListener('click', () => {
         toggleOption(button.dataset.option)
@@ -165,6 +234,7 @@
       vscode.postMessage({ type: 'searchProject', value: input.value, ...options })
     })
     renderOptions()
+    renderContext()
     input.addEventListener('input', () => vscode.postMessage({ type: 'query', value: input.value }))
     input.addEventListener('keydown', event => {
       if (event.key === 'Escape') {
@@ -196,7 +266,9 @@
         options.matchCase = message.matchCase
         options.wholeWord = message.wholeWord
         options.useRegex = message.useRegex
+        options.contextLines = message.contextLines
         renderOptions()
+        renderContext()
       } else if (message.type === 'focus') {
         input.focus()
         input.setSelectionRange(input.value.length, input.value.length)

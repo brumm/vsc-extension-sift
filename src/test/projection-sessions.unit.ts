@@ -51,6 +51,7 @@ const descriptor: ProjectionSessionDescriptor = {
 		matchCase: false,
 		wholeWord: false,
 		useRegex: false,
+		contextLines: 0,
 	},
 	languageId: 'typescript',
 };
@@ -151,6 +152,21 @@ test('restoring sessions rejects an unknown target kind', () => {
 	);
 
 	assert.equal(sessions.get(descriptor.id), undefined);
+});
+
+test('restoring sessions clamps persisted context lines', () => {
+	const persistence = new MemoryPersistence();
+	persistence.stored = [{
+		...descriptor,
+		filter: { ...descriptor.filter, contextLines: 99 },
+	}];
+
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+
+	assert.equal(sessions.get(descriptor.id)?.filter.contextLines, 5);
 });
 
 test('closing a session removes it from persistence', async () => {

@@ -1,5 +1,6 @@
 import {
 	FilterQuery,
+	normalizeContextLines,
 	ProjectionDocument,
 } from './projection-document';
 
@@ -29,6 +30,7 @@ interface LegacyStoredSession {
 	matchCase?: boolean;
 	wholeWord?: boolean;
 	useRegex?: boolean;
+	contextLines?: number;
 }
 
 export interface ProjectionBuild {
@@ -401,6 +403,7 @@ function normalizeStoredSessions(
 				matchCase: candidate.matchCase === true,
 				wholeWord: candidate.wholeWord === true,
 				useRegex: candidate.useRegex === true,
+				contextLines: normalizeContextLines(candidate.contextLines),
 			},
 			languageId: candidate.languageId,
 		}];
@@ -413,5 +416,6 @@ function normalizeFilter(filter: Partial<FilterQuery>): FilterQuery {
 		matchCase: filter.matchCase === true,
 		wholeWord: filter.wholeWord === true,
 		useRegex: filter.useRegex === true,
+		contextLines: normalizeContextLines(filter.contextLines),
 	};
 }

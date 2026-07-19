@@ -4,7 +4,10 @@ import regexIcon from 'sift-codicon:regex'
 import searchIcon from 'sift-codicon:search'
 import wholeWordIcon from 'sift-codicon:whole-word'
 import * as vscode from 'vscode'
-import { FilterQuery } from './projection-document'
+import {
+  FilterQuery,
+  maximumContextLines,
+} from './projection-document'
 import insetTemplate from './projection-filter-inset.html'
 import { ProjectionSession } from './projection-sessions'
 
@@ -85,6 +88,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
           matchCase: session.filter.matchCase,
           wholeWord: session.filter.wholeWord,
           useRegex: session.filter.useRegex,
+          contextLines: session.filter.contextLines,
         })
       }
     }
@@ -169,13 +173,19 @@ function readFilterQuery(message: object, text: string): FilterQuery | undefined
     'wholeWord' in message &&
     typeof message.wholeWord === 'boolean' &&
     'useRegex' in message &&
-    typeof message.useRegex === 'boolean'
+    typeof message.useRegex === 'boolean' &&
+    'contextLines' in message &&
+    typeof message.contextLines === 'number' &&
+    Number.isInteger(message.contextLines) &&
+    message.contextLines >= 0 &&
+    message.contextLines <= maximumContextLines
   ) {
     return {
       text,
       matchCase: message.matchCase,
       wholeWord: message.wholeWord,
       useRegex: message.useRegex,
+      contextLines: message.contextLines,
     }
   }
   return undefined
@@ -192,6 +202,8 @@ function filterInsetHtml(
     matchCase: session.filter.matchCase,
     wholeWord: session.filter.wholeWord,
     useRegex: session.filter.useRegex,
+    contextLines: session.filter.contextLines,
+    maximumContextLines,
   }).replaceAll('<', '\\u003c')
   const placeholder =
     session.target.kind === 'project' ? 'Search project' : 'Filter lines'

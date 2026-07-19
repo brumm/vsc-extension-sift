@@ -202,6 +202,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           matchCase: session.filter.matchCase,
           wholeWord: session.filter.wholeWord,
           useRegex: session.filter.useRegex,
+          contextLines: session.filter.contextLines,
           state: session.state,
           matchCount: session.projection.rows.filter(
             (row) => row.kind === 'mapped',
@@ -680,6 +681,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             matchCase: false,
             wholeWord: false,
             useRegex: false,
+            contextLines: 0,
           },
           languageId: sourceEditor.document.languageId,
         })
@@ -719,6 +721,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             matchCase: false,
             wholeWord: false,
             useRegex: false,
+            contextLines: 0,
           },
           sourceDocument?.languageId ?? 'plaintext',
           !initialQuery,

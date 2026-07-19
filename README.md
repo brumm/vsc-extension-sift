@@ -39,7 +39,7 @@ For the multi-file experiment, run **Filter Lines: Search Project with fff**. Th
 - A dirty projection must be saved before changing its filter. If the query changes while dirty, the pending refresh runs after save.
 - Saving a projection also saves each affected source document, including any unrelated unsaved changes already present in those documents.
 - Source files are conflict-checked line by line before the workspace edit, but this throwaway prototype does not roll back if an individual source-document save fails afterward.
-- Single-file and project filtering are case-insensitive unless **Match Case** is enabled. Project search uses `fff` and supports its path constraints.
+- Single-file and project filtering are case-insensitive unless **Match Case** is enabled. Project search accepts leading `fff` path constraints such as `*.ts`, `src/`, and `!test/`; put the content query after them. Prefix a constraint-looking content token with `\` to search for it literally.
 - Source numbers cannot occupy VS Code's native gutter and may not be announced by screen readers.
 - Syntax highlighting is best effort; omitted lexical context can produce incorrect coloring.
 - A virtual document has one language ID, so mixed-language project results use the language of the editor from which search was invoked.

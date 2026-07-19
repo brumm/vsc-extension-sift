@@ -13,6 +13,7 @@ test('finds every literal filter match with case sensitivity options', () => {
 			matchCase: false,
 			wholeWord: false,
 			useRegex: false,
+			contextLines: 0,
 		}),
 		[
 			{ start: 0, end: 6 },
@@ -27,6 +28,7 @@ test('finds every literal filter match with case sensitivity options', () => {
 			matchCase: true,
 			wholeWord: false,
 			useRegex: false,
+			contextLines: 0,
 		}),
 		[{ start: 7, end: 13 }],
 	);
@@ -39,6 +41,7 @@ test('finds whole-word and regular-expression filter matches', () => {
 			matchCase: false,
 			wholeWord: true,
 			useRegex: false,
+			contextLines: 0,
 		}),
 		[
 			{ start: 0, end: 3 },
@@ -52,6 +55,7 @@ test('finds whole-word and regular-expression filter matches', () => {
 			matchCase: false,
 			wholeWord: false,
 			useRegex: true,
+			contextLines: 0,
 		}),
 		[
 			{ start: 0, end: 7 },
@@ -67,6 +71,7 @@ test('empty and zero-length filters do not create highlight ranges', () => {
 			matchCase: false,
 			wholeWord: false,
 			useRegex: false,
+			contextLines: 0,
 		}),
 		[],
 	);
@@ -76,6 +81,7 @@ test('empty and zero-length filters do not create highlight ranges', () => {
 			matchCase: false,
 			wholeWord: false,
 			useRegex: true,
+			contextLines: 0,
 		}),
 		[],
 	);
@@ -85,6 +91,7 @@ test('empty and zero-length filters do not create highlight ranges', () => {
 			matchCase: true,
 			wholeWord: false,
 			useRegex: true,
+			contextLines: 0,
 		}),
 		[],
 	);
@@ -96,6 +103,7 @@ test('file projection exposes one canonical mapped row', () => {
 		matchCase: false,
 		wholeWord: false,
 		useRegex: false,
+		contextLines: 0,
 	};
 	const projection = ProjectionDocument.forFile({
 		sourceUri: 'file:///workspace/example.ts',
@@ -115,6 +123,42 @@ test('file projection exposes one canonical mapped row', () => {
 		uri: 'file:///workspace/example.ts',
 		line: 1,
 		character: 3,
+	});
+});
+
+test('file projection includes editable context lines around matches', () => {
+	const projection = ProjectionDocument.forFile({
+		sourceUri: 'file:///workspace/example.ts',
+		sourceText: 'zero\nneedle one\ntwo\nexcluded\nfour\nneedle five\nsix',
+		filter: {
+			text: 'needle',
+			matchCase: false,
+			wholeWord: false,
+			useRegex: false,
+			contextLines: 1,
+		},
+	});
+
+	assert.equal(
+		projection.content,
+		'zero\nneedle one\ntwo\nfour\nneedle five\nsix',
+	);
+	assert.deepEqual(
+		projection.rows.flatMap(row =>
+			row.kind === 'mapped' ? [row.source.line] : [],
+		),
+		[0, 1, 2, 4, 5, 6],
+	);
+	assert.deepEqual(projection.planSave(
+		'zero changed\nneedle one\ntwo\nfour\nneedle five\nsix',
+	), {
+		ok: true,
+		edits: [{
+			uri: 'file:///workspace/example.ts',
+			line: 0,
+			before: 'zero',
+			after: 'zero changed',
+		}],
 	});
 });
 
@@ -163,6 +207,7 @@ test('save planning maps an edited projected row back to its source line', () =>
 			matchCase: false,
 			wholeWord: false,
 			useRegex: false,
+			contextLines: 0,
 		},
 	});
 
@@ -188,6 +233,7 @@ test('accepted terminal newline becomes a non-editable normalization row', () =>
 			matchCase: false,
 			wholeWord: false,
 			useRegex: false,
+			contextLines: 0,
 		},
 	}).acceptWorkingCopy('needle\n');
 
@@ -233,6 +279,7 @@ test('save planning rejects inserted projected rows', () => {
 			matchCase: false,
 			wholeWord: false,
 			useRegex: false,
+			contextLines: 0,
 		},
 	});
 
