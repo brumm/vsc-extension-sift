@@ -30,6 +30,11 @@ interface FilterSessionRuntime {
   suppressSourceRefreshUntil?: number
 }
 
+interface RefreshOptions {
+  force?: boolean
+  preserveEditorState?: boolean
+}
+
 interface SelectionAnchor {
   anchor: SourceLocation
   active: SourceLocation
@@ -96,7 +101,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const filterInsets = new ProjectionFilterInsets({
     onFilterChanged: (session, filter) => {
       void sessions.execute(session.id, { kind: 'update-filter', filter })
-      scheduleRefresh(session, true)
+      scheduleRefresh(session, {
+        force: true,
+        preserveEditorState: false,
+      })
     },
     onOpenSource: () => {
       void vscode.commands.executeCommand('editor-filter.openSource')
@@ -436,13 +444,18 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     )
   }
 
-  const refresh = async (session: ProjectionSession): Promise<void> => {
+  const refresh = async (
+    session: ProjectionSession,
+    preserveEditorState = true,
+  ): Promise<void> => {
     const openProjection = vscode.workspace.textDocuments.find(
       (document) => document.uri.toString() === runtimeFor(session).virtualUri.toString(),
     )
     const dirty = Boolean(openProjection?.isDirty)
-    if (!dirty) {
+    if (!dirty && preserveEditorState) {
       pendingAnchors.set(session.id, captureAnchors(session))
+    } else if (!preserveEditorState) {
+      pendingAnchors.delete(session.id)
     }
     const outcome = await sessions.execute(session.id, {
       kind: 'refresh',
@@ -468,8 +481,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
 
   const scheduleRefresh = (
     session: ProjectionSession,
-    force = false,
+    options: RefreshOptions = {},
   ): void => {
+    const {
+      force = false,
+      preserveEditorState = true,
+    } = options
     const runtime = runtimeFor(session)
     if (
       !force &&
@@ -481,7 +498,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     if (runtimeFor(session).refreshTimer) {
       clearTimeout(runtimeFor(session).refreshTimer)
     }
-    runtimeFor(session).refreshTimer = setTimeout(() => void refresh(session), 30)
+    runtimeFor(session).refreshTimer = setTimeout(
+      () => void refresh(session, preserveEditorState),
+      30,
+    )
   }
 
   const showFilterInput = (session: ProjectionSession): void => {
@@ -502,7 +522,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         filter: { ...session.filter, text: value },
       })
       filterInsets.sync(session)
-      scheduleRefresh(session, true)
+      scheduleRefresh(session, {
+        force: true,
+        preserveEditorState: false,
+      })
     })
     input.onDidAccept(() => input.hide())
     input.onDidHide(() => {
@@ -617,7 +640,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       )
     }
     if (refreshAfterSave || outcome.refreshRequired) {
-      setTimeout(() => scheduleRefresh(session, true), 0)
+      setTimeout(() => scheduleRefresh(session, { force: true }), 0)
     }
   })
 
@@ -794,7 +817,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
               kind: 'rename-source',
               sourceUri: file.newUri.toString(),
             })
-            scheduleRefresh(session, true)
+            scheduleRefresh(session, { force: true })
           }
         }
       }
@@ -806,7 +829,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             session.target.kind === 'file' &&
             session.target.sourceUri === uri.toString()
           ) {
-            scheduleRefresh(session, true)
+            scheduleRefresh(session, { force: true })
           }
         }
       }
