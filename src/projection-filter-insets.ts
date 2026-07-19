@@ -83,7 +83,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 
       const messageSubscription = inset.webview.onDidReceiveMessage(
         (message: unknown) =>
-          this.receiveMessage(message, session, inset, focusInput),
+          this.receiveMessage(message, editor, session, inset, focusInput),
       )
       const disposeSubscription = inset.onDidDispose(() => {
         if (this.entries.get(editor)?.inset === inset) {
@@ -124,6 +124,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 
   private receiveMessage(
     message: unknown,
+    editor: vscode.TextEditor,
     session: ProjectionSession,
     inset: vscode.WebviewEditorInset,
     focusInput: boolean,
@@ -159,9 +160,13 @@ export class ProjectionFilterInsets implements vscode.Disposable {
       return
     }
     if (message.type === 'focusEditor') {
-      void vscode.commands.executeCommand(
-        'workbench.action.focusActiveEditorGroup',
-      )
+      void vscode.commands
+        .executeCommand('workbench.action.focusActiveEditorGroup')
+        .then(() => {
+          const documentStart = new vscode.Position(0, 0)
+          editor.selection = new vscode.Selection(documentStart, documentStart)
+          editor.revealRange(new vscode.Range(documentStart, documentStart))
+        })
       return
     }
     if (message.type === 'openSource') {
