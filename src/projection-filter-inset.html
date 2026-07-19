@@ -116,34 +116,36 @@
     }
 
     .context-control {
-      box-sizing: border-box;
+      box-sizing: content-box;
       flex: none;
-      height: 21px;
       display: flex;
+      align-items: center;
       align-items: stretch;
       overflow: hidden;
       border: 1px solid var(--vscode-input-border, transparent);
-      border-radius: 2px;
+      border-radius: 4px;
       background: var(--vscode-input-background);
     }
 
     .context-control button {
-      width: 20px;
-      height: 19px;
+      width: 26px;
+      height: 26px;
       border: 0;
       border-radius: 0;
       font: inherit;
+      display: grid;
+      place-items: center;
     }
 
     .context-value {
       box-sizing: border-box;
-      min-width: 20px;
+      width: 26px;
+      height: 26px;
       display: grid;
       place-items: center;
       border-right: 1px solid var(--vscode-input-border, transparent);
       border-left: 1px solid var(--vscode-input-border, transparent);
       color: var(--vscode-input-foreground);
-      line-height: 19px;
       user-select: none;
     }
 
