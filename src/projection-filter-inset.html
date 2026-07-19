@@ -14,11 +14,11 @@
     input { box-sizing: border-box; min-width: 0; height: 24px; flex: 1; padding: 3px 8px; border: 0; outline: none; background: transparent; color: var(--vscode-input-foreground); font: inherit; }
     input::placeholder { color: var(--vscode-input-placeholderForeground); }
     .options { height: 100%; display: flex; align-items: center; gap: 1px; padding-right: 2px; }
-    button { box-sizing: border-box; width: 23px; height: 21px; padding: 0; border: 1px solid transparent; border-radius: 2px; outline: none; background: transparent; color: var(--vscode-input-foreground); font: 11px var(--vscode-font-family); cursor: pointer; }
+    button { box-sizing: border-box; width: 23px; height: 21px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 2px; outline: none; background: transparent; color: var(--vscode-input-foreground); cursor: pointer; }
     button:hover { background: var(--vscode-toolbar-hoverBackground); }
     button:focus-visible { border-color: var(--vscode-focusBorder); }
     button.active { border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder)); background: var(--vscode-inputOption-activeBackground); color: var(--vscode-inputOption-activeForeground); }
-    .whole-word { text-decoration: underline; text-underline-offset: 2px; }
+    .codicon, .codicon svg { display: block; width: 16px; height: 16px; }
   </style>
 </head>
 <body>
@@ -27,9 +27,7 @@
     <div class="input-shell">
       <input id="query" type="text" placeholder="__SIFT_PLACEHOLDER__" aria-label="__SIFT_PLACEHOLDER__" autocomplete="off" autocapitalize="off" spellcheck="false">
       <div class="options" aria-label="Search options">
-        <button type="button" data-option="matchCase" title="Match Case" aria-label="Match Case" aria-pressed="false">Aa</button>
-        <button type="button" data-option="wholeWord" title="Match Whole Word" aria-label="Match Whole Word" aria-pressed="false"><span class="whole-word">ab</span></button>
-        <button type="button" data-option="useRegex" title="Use Regular Expression" aria-label="Use Regular Expression" aria-pressed="false">.*</button>
+        __SIFT_OPTION_BUTTONS__
       </div>
     </div>
   </div>

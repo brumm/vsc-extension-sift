@@ -1,9 +1,23 @@
 import { spawn } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import nodePath from 'node:path'
 import * as esbuild from 'esbuild'
 
 const watch = process.argv.includes('--watch')
+const require = createRequire(import.meta.url)
+const codiconIcons = nodePath.join(
+  nodePath.dirname(require.resolve('@vscode/codicons/package.json')),
+  'src/icons',
+)
+const codiconPlugin = {
+  name: 'codicons',
+  setup(build) {
+    build.onResolve({ filter: /^sift-codicon:/ }, ({ path }) => ({
+      path: nodePath.join(codiconIcons, `${path.slice('sift-codicon:'.length)}.svg`),
+    }))
+  },
+}
 const entryPoints = [
   'src/extension.ts',
   ...readdirSync('src/test')
@@ -21,14 +35,14 @@ const options = {
   sourcemap: true,
   packages: 'external',
   external: ['vscode'],
-  loader: { '.html': 'text' },
+  plugins: [codiconPlugin],
+  loader: { '.html': 'text', '.svg': 'text' },
   logLevel: 'info',
 }
 
 if (!watch) {
   await esbuild.build(options)
 } else {
-  const require = createRequire(import.meta.url)
   const typeScriptCli = require.resolve('typescript/bin/tsc')
   const typecheck = spawn(
     process.execPath,

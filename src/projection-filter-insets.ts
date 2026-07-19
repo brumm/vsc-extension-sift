@@ -1,10 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
+import caseSensitiveIcon from 'sift-codicon:case-sensitive';
+import regexIcon from 'sift-codicon:regex';
+import wholeWordIcon from 'sift-codicon:whole-word';
 import { FilterQuery } from './projection-document';
 import insetTemplate from './projection-filter-inset.html';
 import { ProjectionSession } from './projection-sessions';
 
 const beforeFirstDocumentLine = -1;
+const filterOptionButtonsHtml = [
+	{
+		option: 'matchCase',
+		title: 'Match Case',
+		codicon: 'case-sensitive',
+		icon: caseSensitiveIcon,
+	},
+	{
+		option: 'wholeWord',
+		title: 'Match Whole Word',
+		codicon: 'whole-word',
+		icon: wholeWordIcon,
+	},
+	{
+		option: 'useRegex',
+		title: 'Use Regular Expression',
+		codicon: 'regex',
+		icon: regexIcon,
+	},
+].map(({ option, title, codicon, icon }) =>
+	`<button type="button" data-option="${option}" title="${title}" aria-label="${title}" aria-pressed="false"><span class="codicon codicon-${codicon}" aria-hidden="true">${icon}</span></button>`
+).join('');
 
 interface FilterInsetEntry {
 	sessionId: string;
@@ -173,5 +198,6 @@ function filterInsetHtml(
 	return insetTemplate
 		.replaceAll('__SIFT_NONCE__', nonce)
 		.replaceAll('__SIFT_PLACEHOLDER__', placeholder)
+		.replace('__SIFT_OPTION_BUTTONS__', filterOptionButtonsHtml)
 		.replace('__SIFT_INITIAL_STATE__', initialState);
 }
