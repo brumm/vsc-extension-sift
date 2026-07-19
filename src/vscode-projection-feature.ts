@@ -1,4 +1,3 @@
-// PROTOTYPE — can an editor inset make a filtered virtual document feel native?
 import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
@@ -64,7 +63,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const sessionRuntimes = new Map<string, FilterSessionRuntime>()
   const provider = new ProjectionFileSystem()
   const saveCoordinator = new ProjectionSaveCoordinator()
-  const output = vscode.window.createOutputChannel('Line Filter Prototype')
+  const output = vscode.window.createOutputChannel('Sift')
   const status = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     20,
@@ -464,7 +463,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     })
     if (outcome.kind === 'blocked-dirty') {
       void vscode.window.showInformationMessage(
-        'Save the edited filtered document before changing its filter.',
+        'Save the sifted document before changing its query.',
       )
       return
     }
@@ -509,8 +508,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     const input = vscode.window.createInputBox()
     input.title =
       session.target.kind === 'project'
-        ? 'Search project with fff (updates live)'
-        : 'Filter lines (updates live)'
+        ? 'Sift project (updates live)'
+        : 'Sift lines (updates live)'
     input.prompt =
       session.target.kind === 'project'
         ? 'Case-insensitive unless Match Case is enabled; fff path constraints are supported'
@@ -591,7 +590,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     )
     if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
       void vscode.window.showWarningMessage(
-        'Open the filtered file in a local workspace folder before searching the project.',
+        'Open the sifted file in a local workspace folder before sifting the project.',
       )
       return
     }
@@ -636,7 +635,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       saved.kind === 'saved' && saved.refreshRequired
     if (outcome.editCount > 0) {
       void vscode.window.setStatusBarMessage(
-        `Filter Lines: saved ${outcome.editCount} projected line${outcome.editCount === 1 ? '' : 's'} to ${outcome.fileCount} file${outcome.fileCount === 1 ? '' : 's'}`,
+        `Sift: saved ${outcome.editCount} projected line${outcome.editCount === 1 ? '' : 's'} to ${outcome.fileCount} file${outcome.fileCount === 1 ? '' : 's'}`,
         3_000,
       )
     }
@@ -664,7 +663,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         const sourceEditor = vscode.window.activeTextEditor
         if (!sourceEditor || sourceEditor.document.uri.scheme === scheme) {
           void vscode.window.showWarningMessage(
-            'Open a source file before creating a filtered view.',
+            'Open a source file before sifting it.',
           )
           return
         }
@@ -705,7 +704,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           : vscode.workspace.workspaceFolders?.[0]
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
-            'Open a local workspace folder before searching the project.',
+            'Open a local workspace folder before sifting the project.',
           )
           return
         }
@@ -727,10 +726,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           !initialQuery,
         )
       },
-    ),
-    vscode.commands.registerCommand(
-      'editor-filter.changeFilter',
-      focusQueryInput,
     ),
     vscode.commands.registerCommand(
       'editor-filter.focusQueryInput',
@@ -777,10 +772,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         sourceEditor.selection,
         vscode.TextEditorRevealType.InCenterIfOutsideViewport,
       )
-    }),
-    vscode.commands.registerCommand('editor-filter.showState', () => {
-      logState('manual state snapshot')
-      output.show(true)
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document.uri.scheme === scheme) {

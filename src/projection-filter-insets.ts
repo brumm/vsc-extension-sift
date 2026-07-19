@@ -209,10 +209,10 @@ function filterInsetHtml(
     maximumContextLines,
   }).replaceAll('<', '\\u003c')
   const placeholder =
-    session.target.kind === 'project' ? 'Search project' : 'Filter lines'
+    session.target.kind === 'project' ? 'Sift project' : 'Sift lines'
   const projectSearchButton =
     session.target.kind === 'file'
-      ? `<button type="button" data-action="search-project" title="Search in Project" aria-label="Search in Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
+      ? `<button type="button" data-action="search-project" title="Sift Project" aria-label="Sift Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
       : ''
 
   return insetTemplate

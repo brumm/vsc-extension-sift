@@ -76,7 +76,7 @@ export type BeginRefreshResult =
 
 export class ProjectionSession {
 	private descriptorValue: ProjectionSessionDescriptor;
-	private projectionValue = ProjectionDocument.message('Restoring filtered view…');
+	private projectionValue = ProjectionDocument.message('Restoring sifted view…');
 	private stateValue: ProjectionSessionState = 'refreshing';
 	private messageValue?: string;
 	private revision = 0;

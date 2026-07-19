@@ -1,8 +1,8 @@
 {
   "name": "editor-filter",
   "publisher": "local",
-  "displayName": "Line Filter Prototype",
-  "description": "Throwaway prototype for writable filtered virtual documents.",
+  "displayName": "Sift",
+  "description": "Sift files and projects into focused, editable views.",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.125.0"
@@ -47,23 +47,11 @@
     "commands": [
       {
         "command": "editor-filter.filterThisFile",
-        "title": "Filter Lines: Filter This File"
+        "title": "Sift Current File"
       },
       {
         "command": "editor-filter.searchProject",
-        "title": "Filter Lines: Search Project with fff"
-      },
-      {
-        "command": "editor-filter.changeFilter",
-        "title": "Filter Lines: Change Filter"
-      },
-      {
-        "command": "editor-filter.openSource",
-        "title": "Filter Lines: Open Source Location"
-      },
-      {
-        "command": "editor-filter.showState",
-        "title": "Filter Lines: Show Prototype State"
+        "title": "Sift Project"
       }
     ],
     "keybindings": [
@@ -90,7 +78,7 @@
     "typecheck": "tsc -p ./ --noEmit",
     "compile": "pnpm run typecheck && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "prototype": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
+    "dev": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",
     "test": "node --test out/test/*.unit.js && vscode-test",
