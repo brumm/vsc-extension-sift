@@ -28,6 +28,7 @@
       <input id="query" type="text" placeholder="__SIFT_PLACEHOLDER__" aria-label="__SIFT_PLACEHOLDER__" autocomplete="off" autocapitalize="off" spellcheck="false">
       <div class="options" aria-label="Search options">
         __SIFT_OPTION_BUTTONS__
+        __SIFT_PROJECT_SEARCH_BUTTON__
       </div>
     </div>
   </div>
@@ -36,6 +37,7 @@
     const initialState = __SIFT_INITIAL_STATE__
     const input = document.getElementById('query')
     const optionButtons = [...document.querySelectorAll('[data-option]')]
+    const projectSearchButton = document.querySelector('[data-action="search-project"]')
     const options = { matchCase: initialState.matchCase, wholeWord: initialState.wholeWord, useRegex: initialState.useRegex }
     input.value = initialState.query
     const renderOptions = () => {
@@ -55,6 +57,9 @@
         input.focus()
       })
     }
+    projectSearchButton?.addEventListener('click', () => {
+      vscode.postMessage({ type: 'searchProject', value: input.value, ...options })
+    })
     renderOptions()
     input.addEventListener('input', () => vscode.postMessage({ type: 'query', value: input.value }))
     input.addEventListener('keydown', event => {

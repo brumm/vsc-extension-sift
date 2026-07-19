@@ -17,3 +17,8 @@ declare module 'sift-codicon:regex' {
 	const content: string;
 	export default content;
 }
+
+declare module 'sift-codicon:search' {
+	const content: string;
+	export default content;
+}

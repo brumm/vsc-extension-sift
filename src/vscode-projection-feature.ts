@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import * as vscode from 'vscode'
 import { FffProjectSearch } from './project-search'
 import {
+  FilterQuery,
   formatSourceLineNumber,
   makeFilterMatchFinder,
   SourceLocation,
@@ -98,6 +99,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     },
     onOpenSource: () => {
       void vscode.commands.executeCommand('editor-filter.openSource')
+    },
+    onSearchProject: (session, filter) => {
+      void searchProjectFromFile(session, filter)
     },
     onUnavailable: (message) => output.appendLine(message),
   })
@@ -527,6 +531,47 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     return hasInset
   }
 
+  const openProjectSearch = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    filter: FilterQuery,
+    languageId: string,
+    focusFilterInput: boolean,
+  ): Promise<void> => {
+    const session = sessions.open({
+      id: randomUUID(),
+      target: {
+        kind: 'project',
+        rootUri: workspaceFolder.uri.toString(),
+      },
+      filter,
+      languageId,
+    })
+    await refresh(session)
+    const hasInset = await showSession(session, focusFilterInput)
+    if (focusFilterInput && !hasInset) {
+      showFilterInput(session)
+    }
+  }
+
+  const searchProjectFromFile = async (
+    session: ProjectionSession,
+    filter: FilterQuery,
+  ): Promise<void> => {
+    if (session.target.kind !== 'file') {
+      return
+    }
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      vscode.Uri.parse(session.target.sourceUri),
+    )
+    if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+      void vscode.window.showWarningMessage(
+        'Open the filtered file in a local workspace folder before searching the project.',
+      )
+      return
+    }
+    await openProjectSearch(workspaceFolder, filter, session.languageId, true)
+  }
+
   provider.setWriteHandler(async (uri, content) => {
     const session = sessions.get(sessionId(uri))
     if (!session) {
@@ -627,30 +672,21 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           return
         }
 
-        const id = randomUUID()
         const initialQuery =
           sourceEditor && sourceDocument
             ? sourceDocument.getText(sourceEditor.selections[0])
             : ''
-        const session = sessions.open({
-          id,
-          target: {
-            kind: 'project',
-            rootUri: workspaceFolder.uri.toString(),
-          },
-          filter: {
+        await openProjectSearch(
+          workspaceFolder,
+          {
             text: initialQuery,
             matchCase: false,
             wholeWord: false,
             useRegex: false,
           },
-          languageId: sourceDocument?.languageId ?? 'plaintext',
-        })
-        await refresh(session)
-        const hasInset = await showSession(session, !initialQuery)
-        if (!initialQuery && !hasInset) {
-          showFilterInput(session)
-        }
+          sourceDocument?.languageId ?? 'plaintext',
+          !initialQuery,
+        )
       },
     ),
     vscode.commands.registerCommand('editor-filter.changeFilter', () => {

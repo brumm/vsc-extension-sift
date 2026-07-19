@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
 import caseSensitiveIcon from 'sift-codicon:case-sensitive';
 import regexIcon from 'sift-codicon:regex';
+import searchIcon from 'sift-codicon:search';
 import wholeWordIcon from 'sift-codicon:whole-word';
 import { FilterQuery } from './projection-document';
 import insetTemplate from './projection-filter-inset.html';
@@ -39,6 +40,7 @@ interface FilterInsetEntry {
 export interface ProjectionFilterInsetCallbacks {
 	onFilterChanged(session: ProjectionSession, filter: FilterQuery): void;
 	onOpenSource(): void;
+	onSearchProject(session: ProjectionSession, filter: FilterQuery): void;
 	onUnavailable(message: string): void;
 }
 
@@ -143,21 +145,11 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 			}
 			return;
 		}
-		if (
-			message.type === 'options' &&
-			'matchCase' in message &&
-			typeof message.matchCase === 'boolean' &&
-			'wholeWord' in message &&
-			typeof message.wholeWord === 'boolean' &&
-			'useRegex' in message &&
-			typeof message.useRegex === 'boolean'
-		) {
-			this.callbacks.onFilterChanged(session, {
-				...session.filter,
-				matchCase: message.matchCase,
-				wholeWord: message.wholeWord,
-				useRegex: message.useRegex,
-			});
+		if (message.type === 'options') {
+			const filter = readFilterQuery(message, session.filter.text);
+			if (filter) {
+				this.callbacks.onFilterChanged(session, filter);
+			}
 			return;
 		}
 		if (message.type === 'ready') {
@@ -175,8 +167,36 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 		}
 		if (message.type === 'openSource') {
 			this.callbacks.onOpenSource();
+			return;
+		}
+		if (message.type === 'searchProject' && 'value' in message) {
+			const filter = typeof message.value === 'string'
+				? readFilterQuery(message, message.value)
+				: undefined;
+			if (filter) {
+				this.callbacks.onSearchProject(session, filter);
+			}
 		}
 	}
+}
+
+function readFilterQuery(message: object, text: string): FilterQuery | undefined {
+	if (
+		'matchCase' in message &&
+		typeof message.matchCase === 'boolean' &&
+		'wholeWord' in message &&
+		typeof message.wholeWord === 'boolean' &&
+		'useRegex' in message &&
+		typeof message.useRegex === 'boolean'
+	) {
+		return {
+			text,
+			matchCase: message.matchCase,
+			wholeWord: message.wholeWord,
+			useRegex: message.useRegex,
+		};
+	}
+	return undefined;
 }
 
 function filterInsetHtml(
@@ -194,10 +214,14 @@ function filterInsetHtml(
 	const placeholder = session.target.kind === 'project'
 		? 'Search project with fff'
 		: 'Filter lines in this file';
+	const projectSearchButton = session.target.kind === 'file'
+		? `<button type="button" data-action="search-project" title="Search in Project" aria-label="Search in Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
+		: '';
 
 	return insetTemplate
 		.replaceAll('__SIFT_NONCE__', nonce)
 		.replaceAll('__SIFT_PLACEHOLDER__', placeholder)
 		.replace('__SIFT_OPTION_BUTTONS__', filterOptionButtonsHtml)
+		.replace('__SIFT_PROJECT_SEARCH_BUTTON__', projectSearchButton)
 		.replace('__SIFT_INITIAL_STATE__', initialState);
 }
