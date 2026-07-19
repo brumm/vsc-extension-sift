@@ -574,6 +574,17 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     await openProjectSearch(workspaceFolder, filter, session.languageId, true)
   }
 
+  const focusQueryInput = (): void => {
+    const session = activeSession(sessions)
+    const editor = vscode.window.activeTextEditor
+    if (!session || !editor) {
+      return
+    }
+    if (!filterInsets.ensure(editor, session, true)) {
+      showFilterInput(session)
+    }
+  }
+
   provider.setWriteHandler(async (uri, content) => {
     const session = sessions.get(sessionId(uri))
     if (!session) {
@@ -691,16 +702,14 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         )
       },
     ),
-    vscode.commands.registerCommand('editor-filter.changeFilter', () => {
-      const session = activeSession(sessions)
-      const editor = vscode.window.activeTextEditor
-      if (!session || !editor) {
-        return
-      }
-      if (!filterInsets.ensure(editor, session, true)) {
-        showFilterInput(session)
-      }
-    }),
+    vscode.commands.registerCommand(
+      'editor-filter.changeFilter',
+      focusQueryInput,
+    ),
+    vscode.commands.registerCommand(
+      'editor-filter.focusQueryInput',
+      focusQueryInput,
+    ),
     vscode.commands.registerCommand('editor-filter.openSource', async () => {
       const editor = vscode.window.activeTextEditor
       const session = activeSession(sessions)

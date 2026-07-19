@@ -71,7 +71,18 @@
         "command": "editor-filter.openSource",
         "key": "cmd+enter",
         "mac": "cmd+enter",
-        "when": "resourceScheme == linefilter && !inputFocus"
+        "when": "resourceScheme == linefilter && editorTextFocus"
+      },
+      {
+        "command": "runCommands",
+        "key": "cmd+up",
+        "when": "resourceScheme == linefilter && editorTextFocus",
+        "args": {
+          "commands": [
+            "cursorTop",
+            "editor-filter.focusQueryInput"
+          ]
+        }
       }
     ]
   },
