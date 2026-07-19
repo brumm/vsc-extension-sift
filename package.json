@@ -51,8 +51,9 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "compile": "pnpm run typecheck && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
     "prototype": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",
@@ -65,6 +66,7 @@
     "@types/vscode": "^1.125.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1"

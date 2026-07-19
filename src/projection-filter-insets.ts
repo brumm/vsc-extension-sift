@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as vscode from 'vscode';
 import { FilterQuery } from './projection-document';
+import insetTemplate from './projection-filter-inset.html';
 import { ProjectionSession } from './projection-sessions';
 
 interface FilterInsetEntry {
@@ -47,7 +48,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 				{ enableScripts: true },
 			);
 			this.entries.set(editor, { sessionId: session.id, inset });
-			inset.webview.html = filterInsetHtml(inset.webview, session, focusInput);
+			inset.webview.html = filterInsetHtml(session, focusInput);
 
 			const messageSubscription = inset.webview.onDidReceiveMessage(
 				(message: unknown) => this.receiveMessage(
@@ -153,7 +154,6 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 }
 
 function filterInsetHtml(
-	webview: vscode.Webview,
 	session: ProjectionSession,
 	focusInput: boolean,
 ): string {
@@ -169,95 +169,8 @@ function filterInsetHtml(
 		? 'Search project with fff'
 		: 'Filter lines in this file';
 
-	return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style nonce="${nonce}">
-    html, body { height: 100%; }
-    body { margin: 0; overflow: hidden; background: var(--vscode-editor-background); color: var(--vscode-foreground); font: 13px var(--vscode-font-family); }
-    .filter-row { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 100%; padding: 4px 8px; border-bottom: 1px solid var(--vscode-editorWidget-border, transparent); }
-    label { flex: none; color: var(--vscode-editorLineNumber-foreground); user-select: none; }
-    .input-shell { box-sizing: border-box; width: min(720px, 100%); height: 26px; display: flex; align-items: center; border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; background: var(--vscode-input-background); }
-    .input-shell:focus-within { border-color: var(--vscode-focusBorder); }
-    input { box-sizing: border-box; min-width: 0; height: 24px; flex: 1; padding: 3px 8px; border: 0; outline: none; background: transparent; color: var(--vscode-input-foreground); font: inherit; }
-    input::placeholder { color: var(--vscode-input-placeholderForeground); }
-    .options { height: 100%; display: flex; align-items: center; gap: 1px; padding-right: 2px; }
-    button { box-sizing: border-box; width: 23px; height: 21px; padding: 0; border: 1px solid transparent; border-radius: 2px; outline: none; background: transparent; color: var(--vscode-input-foreground); font: 11px var(--vscode-font-family); cursor: pointer; }
-    button:hover { background: var(--vscode-toolbar-hoverBackground); }
-    button:focus-visible { border-color: var(--vscode-focusBorder); }
-    button.active { border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder)); background: var(--vscode-inputOption-activeBackground); color: var(--vscode-inputOption-activeForeground); }
-    .whole-word { text-decoration: underline; text-underline-offset: 2px; }
-  </style>
-</head>
-<body>
-  <div class="filter-row">
-    <label for="query">Filter</label>
-    <div class="input-shell">
-      <input id="query" type="text" placeholder="${placeholder}" aria-label="${placeholder}" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <div class="options" aria-label="Search options">
-        <button type="button" data-option="matchCase" title="Match Case" aria-label="Match Case" aria-pressed="false">Aa</button>
-        <button type="button" data-option="wholeWord" title="Match Whole Word" aria-label="Match Whole Word" aria-pressed="false"><span class="whole-word">ab</span></button>
-        <button type="button" data-option="useRegex" title="Use Regular Expression" aria-label="Use Regular Expression" aria-pressed="false">.*</button>
-      </div>
-    </div>
-  </div>
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi()
-    const initialState = ${initialState}
-    const input = document.getElementById('query')
-    const optionButtons = [...document.querySelectorAll('[data-option]')]
-    const options = { matchCase: initialState.matchCase, wholeWord: initialState.wholeWord, useRegex: initialState.useRegex }
-    input.value = initialState.query
-    const renderOptions = () => {
-      for (const button of optionButtons) {
-        const active = options[button.dataset.option]
-        button.classList.toggle('active', active)
-        button.setAttribute('aria-pressed', String(active))
-      }
-    }
-    const emitOptions = () => vscode.postMessage({ type: 'options', ...options })
-    for (const button of optionButtons) {
-      button.addEventListener('click', () => {
-        const option = button.dataset.option
-        options[option] = !options[option]
-        renderOptions()
-        emitOptions()
-        input.focus()
-      })
-    }
-    renderOptions()
-    input.addEventListener('input', () => vscode.postMessage({ type: 'query', value: input.value }))
-    input.addEventListener('keydown', event => {
-      if (event.key === 'Escape' || (event.key === 'Enter' && !event.metaKey && !event.ctrlKey)) {
-        event.preventDefault()
-        vscode.postMessage({ type: 'focusEditor' })
-      } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault()
-        vscode.postMessage({ type: 'openSource' })
-      }
-    })
-    window.addEventListener('message', event => {
-      const message = event.data
-      if (message.type === 'setState') {
-        if (input.value !== message.value) {
-          input.value = message.value
-          input.setSelectionRange(input.value.length, input.value.length)
-        }
-        options.matchCase = message.matchCase
-        options.wholeWord = message.wholeWord
-        options.useRegex = message.useRegex
-        renderOptions()
-      } else if (message.type === 'focus') {
-        input.focus()
-        input.setSelectionRange(input.value.length, input.value.length)
-      }
-    })
-    vscode.postMessage({ type: 'ready' })
-    if (initialState.focusInput) input.focus()
-  </script>
-</body>
-</html>`;
+	return insetTemplate
+		.replaceAll('__SIFT_NONCE__', nonce)
+		.replaceAll('__SIFT_PLACEHOLDER__', placeholder)
+		.replace('__SIFT_INITIAL_STATE__', initialState);
 }
