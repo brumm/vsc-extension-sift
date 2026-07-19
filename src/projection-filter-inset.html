@@ -25,6 +25,7 @@
       box-sizing: border-box;
       display: flex;
       align-items: center;
+      gap: 4px;
       height: calc(100% - 5px);
     }
 
@@ -37,6 +38,8 @@
     .input-shell {
       box-sizing: border-box;
       width: min(720px, 100%);
+      min-width: 0;
+      flex-shrink: 1;
       height: 26px;
       display: flex;
       align-items: center;
@@ -114,12 +117,14 @@
 
     .context-control {
       box-sizing: border-box;
+      flex: none;
       height: 21px;
       display: flex;
       align-items: stretch;
       overflow: hidden;
       border: 1px solid var(--vscode-input-border, transparent);
       border-radius: 2px;
+      background: var(--vscode-input-background);
     }
 
     .context-control button {
@@ -169,15 +174,15 @@
           aria-pressed="false">
           <span class="codicon codicon-regex" aria-hidden="true">__SIFT_REGEX_ICON__</span>
         </button>
-        <div class="context-control" role="group" aria-label="Context lines">
-          <button type="button" data-action="decrease-context" title="Decrease Context Lines"
-            aria-label="Decrease Context Lines">−</button>
-          <span class="context-value" data-context-value aria-label="Context Lines: 0">0</span>
-          <button type="button" data-action="increase-context" title="Increase Context Lines"
-            aria-label="Increase Context Lines">+</button>
-        </div>
         __SIFT_PROJECT_SEARCH_BUTTON__
       </div>
+    </div>
+    <div class="context-control" role="group" aria-label="Context lines">
+      <button type="button" data-action="decrease-context" title="Decrease Context Lines"
+        aria-label="Decrease Context Lines">−</button>
+      <span class="context-value" data-context-value aria-label="Context Lines: 0">0</span>
+      <button type="button" data-action="increase-context" title="Increase Context Lines"
+        aria-label="Increase Context Lines">+</button>
     </div>
   </div>
   <script nonce="__SIFT_NONCE__">
