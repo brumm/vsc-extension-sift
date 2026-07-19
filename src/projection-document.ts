@@ -19,8 +19,18 @@ export interface SourceLine {
 	line: number;
 }
 
+export interface FilterMatch {
+	start: number;
+	end: number;
+}
+
 export type ProjectionRow =
-	| { kind: 'mapped'; source: SourceLine; baseline: string }
+	| {
+		kind: 'mapped';
+		source: SourceLine;
+		baseline: string;
+		matches?: readonly FilterMatch[];
+	}
 	| {
 		kind: 'annotation';
 		role: 'header' | 'spacer' | 'message' | 'terminal';
@@ -50,6 +60,7 @@ export interface ProjectSearchMatch {
 	relativePath: string;
 	line: number;
 	text: string;
+	matches: readonly FilterMatch[];
 }
 
 export class ProjectionDocument {
@@ -118,6 +129,7 @@ export class ProjectionDocument {
 					kind: 'mapped',
 					source: { uri: match.uri, line: match.line },
 					baseline: match.text,
+					matches: match.matches,
 				});
 			}
 		}
@@ -184,11 +196,15 @@ export class ProjectionDocument {
 
 	acceptWorkingCopy(workingCopy: string): ProjectionDocument {
 		const lines = workingCopy.split(/\r?\n/);
-		const rows = this.rows.map((row, line): ProjectionRow =>
-			row.kind === 'mapped'
-				? { ...row, baseline: lines[line] ?? row.baseline }
-				: row,
-		);
+		const rows = this.rows.map((row, line): ProjectionRow => {
+			if (row.kind !== 'mapped') {
+				return row;
+			}
+			const baseline = lines[line] ?? row.baseline;
+			return baseline === row.baseline
+				? row
+				: { ...row, baseline, matches: undefined };
+		});
 		if (lines.length === rows.length + 1 && lines.at(-1) === '') {
 			rows.push({ kind: 'annotation', role: 'terminal' });
 		}
@@ -246,22 +262,44 @@ function makeLineMatcher(filter: FilterQuery): (line: string) => boolean {
 	if (filter.text.length === 0) {
 		return () => true;
 	}
-	if (!filter.useRegex && !filter.wholeWord) {
-		const needle = filter.matchCase
-			? filter.text
-			: filter.text.toLocaleLowerCase();
-		return line => {
-			const candidate = filter.matchCase ? line : line.toLocaleLowerCase();
-			return candidate.includes(needle);
-		};
-	}
+	const expression = makeFilterExpression(filter);
+	return line => expression.test(line);
+}
 
+export function findFilterMatches(
+	line: string,
+	filter: FilterQuery,
+): FilterMatch[] {
+	return makeFilterMatchFinder(filter)(line);
+}
+
+export function makeFilterMatchFinder(
+	filter: FilterQuery,
+): (line: string) => FilterMatch[] {
+	if (filter.text.length === 0) {
+		return () => [];
+	}
+	let expression: RegExp;
+	try {
+		expression = makeFilterExpression(filter, true);
+	} catch {
+		return () => [];
+	}
+	return line =>
+		[...line.matchAll(expression)].flatMap(match =>
+			match[0].length > 0
+				? [{ start: match.index, end: match.index + match[0].length }]
+				: [],
+		);
+}
+
+function makeFilterExpression(filter: FilterQuery, global = false): RegExp {
 	let pattern = filter.useRegex ? filter.text : escapeRegExp(filter.text);
 	if (filter.wholeWord) {
 		pattern = `\\b(?:${pattern})\\b`;
 	}
-	const expression = new RegExp(pattern, filter.matchCase ? 'u' : 'iu');
-	return line => expression.test(line);
+	const flags = `${global ? 'g' : ''}${filter.matchCase ? '' : 'i'}u`;
+	return new RegExp(pattern, flags);
 }
 
 export function escapeRegExp(value: string): string {

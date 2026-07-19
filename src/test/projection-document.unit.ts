@@ -2,8 +2,93 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	FilterQuery,
+	findFilterMatches,
 	ProjectionDocument,
 } from '../projection-document';
+
+test('finds every literal filter match with case sensitivity options', () => {
+	assert.deepEqual(
+		findFilterMatches('Needle needle NEEDLE', {
+			text: 'needle',
+			matchCase: false,
+			wholeWord: false,
+			useRegex: false,
+		}),
+		[
+			{ start: 0, end: 6 },
+			{ start: 7, end: 13 },
+			{ start: 14, end: 20 },
+		],
+	);
+
+	assert.deepEqual(
+		findFilterMatches('Needle needle', {
+			text: 'needle',
+			matchCase: true,
+			wholeWord: false,
+			useRegex: false,
+		}),
+		[{ start: 7, end: 13 }],
+	);
+});
+
+test('finds whole-word and regular-expression filter matches', () => {
+	assert.deepEqual(
+		findFilterMatches('cat scatter cat', {
+			text: 'cat',
+			matchCase: false,
+			wholeWord: true,
+			useRegex: false,
+		}),
+		[
+			{ start: 0, end: 3 },
+			{ start: 12, end: 15 },
+		],
+	);
+
+	assert.deepEqual(
+		findFilterMatches('item-12 item-345', {
+			text: 'item-\\d+',
+			matchCase: false,
+			wholeWord: false,
+			useRegex: true,
+		}),
+		[
+			{ start: 0, end: 7 },
+			{ start: 8, end: 16 },
+		],
+	);
+});
+
+test('empty and zero-length filters do not create highlight ranges', () => {
+	assert.deepEqual(
+		findFilterMatches('anything', {
+			text: '',
+			matchCase: false,
+			wholeWord: false,
+			useRegex: false,
+		}),
+		[],
+	);
+	assert.deepEqual(
+		findFilterMatches('abc', {
+			text: '^',
+			matchCase: false,
+			wholeWord: false,
+			useRegex: true,
+		}),
+		[],
+	);
+	assert.deepEqual(
+		findFilterMatches('abc', {
+			text: '[',
+			matchCase: true,
+			wholeWord: false,
+			useRegex: true,
+		}),
+		[],
+	);
+});
 
 test('file projection exposes one canonical mapped row', () => {
 	const filter: FilterQuery = {
@@ -40,12 +125,14 @@ test('project projection owns mapped and annotation rows together', () => {
 			relativePath: 'a.ts',
 			line: 4,
 			text: 'const a = 1;',
+			matches: [{ start: 6, end: 7 }],
 		},
 		{
 			uri: 'file:///workspace/b.ts',
 			relativePath: 'b.ts',
 			line: 8,
 			text: 'const b = 2;',
+			matches: [{ start: 6, end: 7 }],
 		},
 	]);
 
@@ -59,6 +146,12 @@ test('project projection owns mapped and annotation rows together', () => {
 		line: 8,
 		character: 0,
 	});
+	assert.deepEqual(
+		projection.rows[1].kind === 'mapped'
+			? projection.rows[1].matches
+			: undefined,
+		[{ start: 6, end: 7 }],
+	);
 });
 
 test('save planning maps an edited projected row back to its source line', () => {
@@ -114,6 +207,23 @@ test('accepted terminal newline becomes a non-editable normalization row', () =>
 	});
 });
 
+test('accepting an edited project row clears stale backend match ranges', () => {
+	const projection = ProjectionDocument.forProject([{
+		uri: 'file:///workspace/example.ts',
+		relativePath: 'example.ts',
+		line: 0,
+		text: 'before',
+		matches: [{ start: 0, end: 6 }],
+	}]).acceptWorkingCopy('\nafter');
+
+	assert.deepEqual(projection.rows[1], {
+		kind: 'mapped',
+		source: { uri: 'file:///workspace/example.ts', line: 0 },
+		baseline: 'after',
+		matches: undefined,
+	});
+});
+
 test('save planning rejects inserted projected rows', () => {
 	const projection = ProjectionDocument.forFile({
 		sourceUri: 'file:///workspace/example.ts',
@@ -136,6 +246,7 @@ test('save planning rejects edits to annotation rows', () => {
 		relativePath: 'example.ts',
 		line: 0,
 		text: 'mapped',
+		matches: [{ start: 0, end: 6 }],
 	}]);
 
 	const plan = projection.planSave('edited header\nmapped');
@@ -152,12 +263,14 @@ test('save planning rejects contradictory edits to a duplicated source line', ()
 			relativePath: 'example.ts',
 			line: 0,
 			text: 'mapped',
+			matches: [{ start: 0, end: 6 }],
 		},
 		{
 			uri: 'file:///workspace/example.ts',
 			relativePath: 'example.ts',
 			line: 0,
 			text: 'mapped',
+			matches: [{ start: 0, end: 6 }],
 		},
 	]);
 

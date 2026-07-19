@@ -47,6 +47,10 @@ export class FffProjectSearch {
 				relativePath: match.relativePath,
 				line: Math.max(0, match.lineNumber - 1),
 				text: match.lineContent,
+				matches: byteRangesToFilterMatches(
+					match.lineContent,
+					match.matchRanges,
+				),
 			})),
 			hasMore: Boolean(result.value.nextCursor),
 		};
@@ -100,6 +104,20 @@ export class FffProjectSearch {
 		});
 		return finder;
 	}
+}
+
+export function byteRangesToFilterMatches(
+	line: string,
+	ranges: readonly (readonly [number, number])[],
+): { start: number; end: number }[] {
+	const bytes = Buffer.from(line, 'utf8');
+	const utf16Offset = (byteOffset: number): number =>
+		bytes.subarray(0, Math.min(Math.max(0, byteOffset), bytes.length))
+			.toString('utf8').length;
+	return ranges.map(([start, end]) => ({
+		start: utf16Offset(start),
+		end: utf16Offset(end),
+	}));
 }
 
 export function compileFffQuery(filter: FilterQuery): {

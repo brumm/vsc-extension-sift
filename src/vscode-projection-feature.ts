@@ -5,6 +5,7 @@ import * as vscode from 'vscode'
 import { FffProjectSearch } from './project-search'
 import {
   formatSourceLineNumber,
+  makeFilterMatchFinder,
   SourceLocation,
   SourcePosition,
 } from './projection-document'
@@ -82,6 +83,13 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
 
+  const matchHighlightDecoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor(
+      'editor.findMatchHighlightBackground',
+    ),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
   const pendingAnchors = new Map<string, EditorAnchor[]>()
   const filterInsets = new ProjectionFilterInsets({
     onFilterChanged: (session, filter) => {
@@ -130,6 +138,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const clearEditorDecorations = (editor: vscode.TextEditor): void => {
     editor.setDecorations(lineNumberDecoration, [])
     editor.setDecorations(fileHeaderDecoration, [])
+    editor.setDecorations(matchHighlightDecoration, [])
   }
 
   const clearSessionDecorations = (session: ProjectionSession): void => {
@@ -213,6 +222,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       ...editor.options,
       lineNumbers: vscode.TextEditorLineNumbersStyle.Off,
     }
+    const findMatches = makeFilterMatchFinder(session.filter)
     editor.setDecorations(
       lineNumberDecoration,
       session.projection.rows.flatMap((row, projectedLine) =>
@@ -249,6 +259,26 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       }]
           : [],
       ),
+    )
+    editor.setDecorations(
+      matchHighlightDecoration,
+      session.projection.rows.flatMap((row, projectedLine) => {
+        if (row.kind !== 'mapped') {
+          return []
+        }
+        const line = editor.document.lineAt(projectedLine).text
+        const matches = session.target.kind === 'project'
+          ? line === row.baseline ? row.matches ?? [] : []
+          : findMatches(line)
+        return matches.map(
+          (match) => new vscode.Range(
+            projectedLine,
+            match.start,
+            projectedLine,
+            match.end,
+          ),
+        )
+      }),
     )
   }
 
@@ -539,6 +569,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     status,
     lineNumberDecoration,
     fileHeaderDecoration,
+    matchHighlightDecoration,
     filterInsets,
     projectSearch,
     vscode.workspace.registerFileSystemProvider(scheme, provider, {
