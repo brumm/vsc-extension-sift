@@ -1,31 +1,123 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-__SIFT_NONCE__'; script-src 'nonce-__SIFT_NONCE__';">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; style-src 'nonce-__SIFT_NONCE__'; script-src 'nonce-__SIFT_NONCE__';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style nonce="__SIFT_NONCE__">
-    html, body { height: 100%; }
-    body { margin: 0; overflow: hidden; background: var(--vscode-editor-background); color: var(--vscode-foreground); font: 13px var(--vscode-font-family); }
-    .filter-row { box-sizing: border-box; display: flex; align-items: center; gap: 8px; height: 100%; padding: 4px 8px; border-bottom: 1px solid var(--vscode-editorWidget-border, transparent); }
-    label { flex: none; color: var(--vscode-editorLineNumber-foreground); user-select: none; }
-    .input-shell { box-sizing: border-box; width: min(720px, 100%); height: 26px; display: flex; align-items: center; border: 1px solid var(--vscode-input-border, transparent); border-radius: 2px; background: var(--vscode-input-background); }
-    .input-shell:focus-within { border-color: var(--vscode-focusBorder); }
-    input { box-sizing: border-box; min-width: 0; height: 24px; flex: 1; padding: 3px 8px; border: 0; outline: none; background: transparent; color: var(--vscode-input-foreground); font: inherit; }
-    input::placeholder { color: var(--vscode-input-placeholderForeground); }
-    .options { height: 100%; display: flex; align-items: center; gap: 1px; padding-right: 2px; }
-    button { box-sizing: border-box; width: 23px; height: 21px; display: grid; place-items: center; padding: 0; border: 1px solid transparent; border-radius: 2px; outline: none; background: transparent; color: var(--vscode-input-foreground); cursor: pointer; }
-    button:hover { background: var(--vscode-toolbar-hoverBackground); }
-    button:focus-visible { border-color: var(--vscode-focusBorder); }
-    button.active { border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder)); background: var(--vscode-inputOption-activeBackground); color: var(--vscode-inputOption-activeForeground); }
-    .codicon, .codicon svg { display: block; width: 16px; height: 16px; }
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: var(--vscode-editor-background);
+      color: var(--vscode-foreground);
+      font: 13px var(--vscode-font-family);
+    }
+
+    .filter-row {
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      height: calc(100% - 5px);
+    }
+
+    label {
+      flex: none;
+      color: var(--vscode-editorLineNumber-foreground);
+      user-select: none;
+    }
+
+    .input-shell {
+      box-sizing: border-box;
+      width: min(720px, 100%);
+      height: 26px;
+      display: flex;
+      align-items: center;
+      border-radius: 4px;
+      border: 1px solid var(--vscode-input-border, transparent);
+      background: var(--vscode-input-background);
+    }
+
+    .input-shell:focus-within {
+      border-color: var(--vscode-focusBorder);
+    }
+
+    input {
+      box-sizing: border-box;
+      min-width: 0;
+      height: 24px;
+      flex: 1;
+      padding: 3px 8px;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: var(--vscode-input-foreground);
+      font: inherit;
+    }
+
+    input::placeholder {
+      color: var(--vscode-input-placeholderForeground);
+    }
+
+    .options {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      gap: 1px;
+      padding-right: 2px;
+    }
+
+    button {
+      box-sizing: border-box;
+      width: 23px;
+      height: 21px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      outline: none;
+      background: transparent;
+      color: var(--vscode-input-foreground);
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--vscode-toolbar-hoverBackground);
+    }
+
+    button:focus-visible {
+      border-color: var(--vscode-focusBorder);
+    }
+
+    button.active {
+      border-color: var(--vscode-inputOption-activeBorder, var(--vscode-focusBorder));
+      background: var(--vscode-inputOption-activeBackground);
+      color: var(--vscode-inputOption-activeForeground);
+    }
+
+    .codicon,
+    .codicon svg {
+      display: block;
+      width: 16px;
+      height: 16px;
+    }
   </style>
 </head>
+
 <body>
   <div class="filter-row">
-    <label for="query">Filter</label>
     <div class="input-shell">
-      <input id="query" type="text" placeholder="__SIFT_PLACEHOLDER__" aria-label="__SIFT_PLACEHOLDER__" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input id="query" type="text" placeholder="__SIFT_PLACEHOLDER__" aria-label="__SIFT_PLACEHOLDER__"
+        autocomplete="off" autocapitalize="off" spellcheck="false">
+
       <div class="options" aria-label="Search options">
         __SIFT_OPTION_BUTTONS__
         __SIFT_PROJECT_SEARCH_BUTTON__
@@ -91,4 +183,5 @@
     if (initialState.focusInput) input.focus()
   </script>
 </body>
+
 </html>
