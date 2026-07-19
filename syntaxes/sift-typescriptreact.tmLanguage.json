@@ -1,0 +1,8 @@
+{
+  "scopeName": "source.sift.typescriptreact",
+  "patterns": [
+    {
+      "include": "source.tsx"
+    }
+  ]
+}

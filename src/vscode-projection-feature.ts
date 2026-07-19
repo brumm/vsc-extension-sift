@@ -12,6 +12,7 @@ import {
 } from './projection-document'
 import { ProjectionFileSystem } from './projection-file-system'
 import { ProjectionFilterInsets } from './projection-filter-insets'
+import { projectionLanguageId } from './projection-language'
 import { ProjectionSaveCoordinator } from './projection-save'
 import {
   ProjectionSession,
@@ -515,12 +516,13 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     focusFilterInput = false,
   ): Promise<boolean> => {
     const document = await vscode.workspace.openTextDocument(runtimeFor(session).virtualUri)
+    const displayLanguageId = projectionLanguageId(session.languageId)
     const languageDocument =
-      document.languageId === session.languageId
+      document.languageId === displayLanguageId
         ? document
         : await vscode.languages.setTextDocumentLanguage(
             document,
-            session.languageId,
+            displayLanguageId,
           )
     const editor = await vscode.window.showTextDocument(languageDocument, {
       preview: false,
