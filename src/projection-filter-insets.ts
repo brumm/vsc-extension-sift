@@ -9,31 +9,6 @@ import insetTemplate from './projection-filter-inset.html'
 import { ProjectionSession } from './projection-sessions'
 
 const beforeFirstDocumentLine = -1
-const filterOptionButtonsHtml = [
-  {
-    option: 'matchCase',
-    title: 'Match Case',
-    codicon: 'case-sensitive',
-    icon: caseSensitiveIcon,
-  },
-  {
-    option: 'wholeWord',
-    title: 'Match Whole Word',
-    codicon: 'whole-word',
-    icon: wholeWordIcon,
-  },
-  {
-    option: 'useRegex',
-    title: 'Use Regular Expression',
-    codicon: 'regex',
-    icon: regexIcon,
-  },
-]
-  .map(
-    ({ option, title, codicon, icon }) =>
-      `<button type="button" data-option="${option}" title="${title}" aria-label="${title}" aria-pressed="false"><span class="codicon codicon-${codicon}" aria-hidden="true">${icon}</span></button>`,
-  )
-  .join('')
 
 interface FilterInsetEntry {
   sessionId: string
@@ -170,6 +145,9 @@ export class ProjectionFilterInsets implements vscode.Disposable {
       case 'openSource':
         this.callbacks.onOpenSource()
         return
+      case 'closeEditor':
+        void vscode.commands.executeCommand('workbench.action.closeActiveEditor')
+        return
       case 'searchProject': {
         const filter =
           'value' in message && typeof message.value === 'string'
@@ -224,7 +202,9 @@ function filterInsetHtml(
   return insetTemplate
     .replaceAll('__SIFT_NONCE__', nonce)
     .replaceAll('__SIFT_PLACEHOLDER__', placeholder)
-    .replace('__SIFT_OPTION_BUTTONS__', filterOptionButtonsHtml)
+    .replace('__SIFT_CASE_SENSITIVE_ICON__', caseSensitiveIcon)
+    .replace('__SIFT_WHOLE_WORD_ICON__', wholeWordIcon)
+    .replace('__SIFT_REGEX_ICON__', regexIcon)
     .replace('__SIFT_PROJECT_SEARCH_BUTTON__', projectSearchButton)
     .replace('__SIFT_INITIAL_STATE__', initialState)
 }

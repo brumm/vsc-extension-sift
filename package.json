@@ -71,7 +71,7 @@
         "command": "editor-filter.openSource",
         "key": "cmd+enter",
         "mac": "cmd+enter",
-        "when": "resourceScheme == linefilter"
+        "when": "resourceScheme == linefilter && !inputFocus"
       }
     ]
   },
