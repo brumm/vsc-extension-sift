@@ -132,53 +132,53 @@ export class ProjectionFilterInsets implements vscode.Disposable {
     if (!message || typeof message !== 'object' || !('type' in message)) {
       return
     }
-    if (
-      message.type === 'query' &&
-      'value' in message &&
-      typeof message.value === 'string'
-    ) {
-      if (session.filter.text !== message.value) {
-        this.callbacks.onFilterChanged(session, {
-          ...session.filter,
-          text: message.value,
-        })
+    switch (message.type) {
+      case 'query': {
+        if ('value' in message && typeof message.value === 'string') {
+          if (session.filter.text !== message.value) {
+            this.callbacks.onFilterChanged(session, {
+              ...session.filter,
+              text: message.value,
+            })
+          }
+        }
+        return
       }
-      return
-    }
-    if (message.type === 'options') {
-      const filter = readFilterQuery(message, session.filter.text)
-      if (filter) {
-        this.callbacks.onFilterChanged(session, filter)
+      case 'options': {
+        const filter = readFilterQuery(message, session.filter.text)
+        if (filter) {
+          this.callbacks.onFilterChanged(session, filter)
+        }
+        return
       }
-      return
-    }
-    if (message.type === 'ready') {
-      this.sync(session)
-      if (focusInput) {
-        void inset.webview.postMessage({ type: 'focus' })
+      case 'ready': {
+        this.sync(session)
+        if (focusInput) {
+          void inset.webview.postMessage({ type: 'focus' })
+        }
+        return
       }
-      return
-    }
-    if (message.type === 'focusEditor') {
-      void vscode.commands
-        .executeCommand('workbench.action.focusActiveEditorGroup')
-        .then(() => {
-          const documentStart = new vscode.Position(0, 0)
-          editor.selection = new vscode.Selection(documentStart, documentStart)
-          editor.revealRange(new vscode.Range(documentStart, documentStart))
-        })
-      return
-    }
-    if (message.type === 'openSource') {
-      this.callbacks.onOpenSource()
-      return
-    }
-    if (message.type === 'searchProject' && 'value' in message) {
-      const filter = typeof message.value === 'string'
-        ? readFilterQuery(message, message.value)
-        : undefined
-      if (filter) {
-        this.callbacks.onSearchProject(session, filter)
+      case 'focusEditor':
+        void vscode.commands
+          .executeCommand('workbench.action.focusActiveEditorGroup')
+          .then(() => {
+            const documentStart = new vscode.Position(0, 0)
+            editor.selection = new vscode.Selection(documentStart, documentStart)
+            editor.revealRange(new vscode.Range(documentStart, documentStart))
+          })
+        return
+      case 'openSource':
+        this.callbacks.onOpenSource()
+        return
+      case 'searchProject': {
+        const filter =
+          'value' in message && typeof message.value === 'string'
+            ? readFilterQuery(message, message.value)
+            : undefined
+        if (filter) {
+          this.callbacks.onSearchProject(session, filter)
+        }
+        return
       }
     }
   }
