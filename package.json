@@ -79,10 +79,11 @@
     "compile": "pnpm run typecheck && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "dev": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
+    "enable-proposed-api": "node scripts/enable-proposed-api.mjs",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",
-    "test": "node --test out/test/*.unit.js && vscode-test",
-    "test:unit": "pnpm run compile && node --test out/test/*.unit.js"
+    "test": "node --test out/test/*.unit.js scripts/*.test.mjs && vscode-test",
+    "test:unit": "pnpm run compile && node --test out/test/*.unit.js scripts/*.test.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -93,6 +94,7 @@
     "@vscode/test-electron": "^3.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.5.0",
+    "jsonc-parser": "^3.3.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1"
   },

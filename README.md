@@ -9,3 +9,7 @@ Sift creates focused, editable views of matching lines in a file or across a pro
 - Edit existing result lines and save the changes back to their source files.
 - Open the mapped source location with **Cmd+Enter** or the editor status item.
 - Keep sifted views open across window reloads and source-file updates.
+
+## Local setup
+
+After installing dependencies, run `pnpm run enable-proposed-api` once and restart VS Code. The script adds Sift to VS Code's existing `enable-proposed-api` runtime argument without replacing other settings.
