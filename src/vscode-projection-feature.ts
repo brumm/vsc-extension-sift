@@ -449,31 +449,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     runtimeFor(session).refreshTimer = setTimeout(() => void refresh(session), 30)
   }
 
-  const revealSourceLineAtTop = (
-    editor: vscode.TextEditor,
-    session: ProjectionSession,
-    sourceLine: number,
-  ): void => {
-    if (session.target.kind !== 'file') {
-      return
-    }
-    const projected = session.projection.projectedAt({
-      uri: session.target.sourceUri,
-      line: sourceLine,
-      character: 0,
-    })
-    if (projected) {
-      editor.revealRange(
-        new vscode.Range(projected.line, 0, projected.line, 0),
-        vscode.TextEditorRevealType.AtTop,
-      )
-    }
-  }
-
-  const showFilterInput = (
-    session: ProjectionSession,
-    restoreSourceLine?: number,
-  ): void => {
+  const showFilterInput = (session: ProjectionSession): void => {
     const input = vscode.window.createInputBox()
     input.title =
       session.target.kind === 'project'
@@ -496,24 +472,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     input.onDidAccept(() => input.hide())
     input.onDidHide(() => {
       input.dispose()
-      if (restoreSourceLine !== undefined) {
-        setTimeout(() => {
-          const editor = vscode.window.visibleTextEditors.find(
-            (candidate) =>
-              candidate.document.uri.toString() === runtimeFor(session).virtualUri.toString(),
-          )
-          if (editor) {
-            revealSourceLineAtTop(editor, session, restoreSourceLine)
-          }
-        }, 0)
-      }
     })
     input.show()
   }
 
   const showSession = async (
     session: ProjectionSession,
-    sourceVisibleLine?: number,
     focusFilterInput = false,
   ): Promise<boolean> => {
     const document = await vscode.workspace.openTextDocument(runtimeFor(session).virtualUri)
@@ -528,9 +492,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       preview: false,
     })
     decorateEditor(editor)
-    if (sourceVisibleLine !== undefined) {
-      revealSourceLineAtTop(editor, session, sourceVisibleLine)
-    }
     const hasInset = filterInsets.ensure(editor, session, focusFilterInput)
     updateStatus()
     return hasInset
@@ -599,9 +560,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         const initialQuery = sourceEditor.document.getText(
           sourceEditor.selections[0],
         )
-        const sourceVisibleLine =
-          sourceEditor.visibleRanges[0]?.start.line ??
-          sourceEditor.selection.active.line
         const session = sessions.open({
           id,
           target: { kind: 'file', sourceUri },
@@ -614,13 +572,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           languageId: sourceEditor.document.languageId,
         })
         await refresh(session)
-        const hasInset = await showSession(
-          session,
-          sourceVisibleLine,
-          !initialQuery,
-        )
+        const hasInset = await showSession(session, !initialQuery)
         if (!initialQuery && !hasInset) {
-          showFilterInput(session, sourceVisibleLine)
+          showFilterInput(session)
         }
       },
     ),
@@ -662,7 +616,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           languageId: sourceDocument?.languageId ?? 'plaintext',
         })
         await refresh(session)
-        const hasInset = await showSession(session, undefined, !initialQuery)
+        const hasInset = await showSession(session, !initialQuery)
         if (!initialQuery && !hasInset) {
           showFilterInput(session)
         }

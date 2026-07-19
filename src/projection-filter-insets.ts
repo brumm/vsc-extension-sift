@@ -4,6 +4,8 @@ import { FilterQuery } from './projection-document';
 import insetTemplate from './projection-filter-inset.html';
 import { ProjectionSession } from './projection-sessions';
 
+const beforeFirstDocumentLine = -1;
+
 interface FilterInsetEntry {
 	sessionId: string;
 	inset: vscode.WebviewEditorInset;
@@ -40,10 +42,9 @@ export class ProjectionFilterInsets implements vscode.Disposable {
 		}
 
 		try {
-			const firstVisibleLine = editor.visibleRanges[0]?.start.line ?? 0;
 			const inset = vscode.window.createWebviewTextEditorInset(
 				editor,
-				firstVisibleLine - 1,
+				beforeFirstDocumentLine,
 				2,
 				{ enableScripts: true },
 			);

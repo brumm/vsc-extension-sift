@@ -11,7 +11,7 @@ pnpm run prototype
 In the Extension Development Host window:
 
 1. Open any local source file.
-2. Optionally select some text, then run **Filter Lines: Filter This File** from the Command Palette. The first selection becomes the initial filter. The virtual editor inherits the source editor's vertical scroll position; with no selection, it shows the complete source and immediately opens the live filter input.
+2. Optionally select some text, then run **Filter Lines: Filter This File** from the Command Palette. The first selection becomes the initial filter. The virtual editor opens at the top so the inline filter input is visible; with no selection, it shows the complete source and focuses that input immediately.
 3. In the filtered editor, run **Filter Lines: Change Filter** and type to narrow the file live.
 4. Press **Cmd+Enter** or click the status-bar location to close the filtered tab and open the selected source line in its place.
 5. Edit an existing result row and press **Cmd+S**. The projected tab uses native dirty state, then applies and saves the corresponding source-line edit.
