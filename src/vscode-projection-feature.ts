@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
 import { FffProjectSearch } from './project-search'
+import { selectProjectWorkspace } from './project-workspace'
 import {
   FilterQuery,
   formatSourceLineNumber,
@@ -695,13 +696,16 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       'editor-filter.searchProject',
       async () => {
         const sourceEditor = vscode.window.activeTextEditor
-        const sourceDocument =
+        const activeDocument =
           sourceEditor?.document.uri.scheme === scheme
             ? undefined
             : sourceEditor?.document
-        const workspaceFolder = sourceDocument
-          ? vscode.workspace.getWorkspaceFolder(sourceDocument.uri)
-          : vscode.workspace.workspaceFolders?.[0]
+        const { workspaceFolder, sourceDocument } = selectProjectWorkspace(
+          activeDocument,
+          (document) => vscode.workspace.getWorkspaceFolder(document.uri),
+          vscode.workspace.workspaceFolders,
+          (folder) => folder.uri.scheme === 'file',
+        )
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
             'Open a local workspace folder before sifting the project.',

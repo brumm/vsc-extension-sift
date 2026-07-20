@@ -61,6 +61,11 @@
         "when": "resourceScheme == linefilter && editorTextFocus"
       },
       {
+        "command": "workbench.action.closeActiveEditor",
+        "key": "escape",
+        "when": "resourceScheme == linefilter && editorTextFocus && !editorHasMultipleSelections"
+      },
+      {
         "command": "runCommands",
         "key": "cmd+up",
         "when": "resourceScheme == linefilter && editorTextFocus",
