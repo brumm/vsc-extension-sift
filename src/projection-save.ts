@@ -11,7 +11,6 @@ export type ProjectionSaveSuccess = {
 	ok: true;
 	editCount: number;
 	fileCount: number;
-	refreshRequired: boolean;
 };
 
 export type ProjectionSaveOutcome = ProjectionSaveFailure | ProjectionSaveSuccess;
@@ -55,7 +54,6 @@ export class ProjectionSaveCoordinator {
 				ok: true,
 				editCount: 0,
 				fileCount: 0,
-				refreshRequired: false,
 			};
 		}
 
@@ -91,7 +89,6 @@ export class ProjectionSaveCoordinator {
 			ok: true,
 			editCount: plan.edits.length,
 			fileCount: sourceDocuments.size,
-			refreshRequired: true,
 		};
 	}
 }

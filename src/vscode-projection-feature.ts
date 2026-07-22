@@ -640,7 +640,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         3_000,
       )
     }
-    if (refreshAfterSave || outcome.refreshRequired) {
+    if (refreshAfterSave) {
       setTimeout(() => scheduleRefresh(session, { force: true }), 0)
     }
   })
