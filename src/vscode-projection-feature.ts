@@ -1219,8 +1219,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           'workbench.action.closeActiveEditor',
         )
       }
-      const orderedSources = [...sources.slice(1), sources[0]]
-      for (const source of orderedSources) {
+      for (const source of sources) {
         const document = await vscode.workspace.openTextDocument(
           vscode.Uri.parse(source.uri),
         )
