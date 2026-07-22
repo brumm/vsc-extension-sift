@@ -126,6 +126,34 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
 
   const pendingAnchors = new Map<string, EditorAnchor[]>()
   const projectedSelectionLines = new WeakMap<vscode.TextEditor, number>()
+  const wordWrapDisabledDocuments = new Set<string>()
+
+  const disableWordWrap = async (editor: vscode.TextEditor): Promise<void> => {
+    if (editor.document.uri.scheme !== scheme) {
+      return
+    }
+    const uri = editor.document.uri.toString()
+    if (wordWrapDisabledDocuments.has(uri)) {
+      return
+    }
+    if (vscode.window.activeTextEditor !== editor) {
+      return
+    }
+    wordWrapDisabledDocuments.add(uri)
+    const configuredWordWrap = vscode.workspace
+      .getConfiguration('editor', editor.document.uri)
+      .get<string>('wordWrap', 'off')
+    if (configuredWordWrap === 'off') {
+      return
+    }
+    try {
+      await vscode.commands.executeCommand('editor.action.toggleWordWrap')
+    } catch (error) {
+      wordWrapDisabledDocuments.delete(uri)
+      output.appendLine(`Could not disable word wrap: ${String(error)}`)
+    }
+  }
+
   const filterInsets = new ProjectionFilterInsets({
     onFilterChanged: (session, filter) => {
       void sessions.execute(session.id, { kind: 'update-filter', filter })
@@ -171,6 +199,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     provider.forget(uri)
     sessionRuntimes.delete(id)
     pendingAnchors.delete(id)
+    wordWrapDisabledDocuments.delete(uri.toString())
     void sessions.close(id)
   }
 
@@ -606,6 +635,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       viewColumn,
       preview: false,
     })
+    await disableWordWrap(editor)
     decorateEditor(editor)
     const hasInset = filterInsets.ensure(editor, session, focusFilterInput)
     updateStatus()
@@ -1115,6 +1145,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor) {
+        void disableWordWrap(editor)
         decorateEditor(editor)
         scheduleSourceReveal(editor)
       }
@@ -1155,6 +1186,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
 
   for (const session of sessions.values()) {
     void refresh(session)
+  }
+  if (vscode.window.activeTextEditor) {
+    void disableWordWrap(vscode.window.activeTextEditor)
   }
   logState('extension activated')
 }

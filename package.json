@@ -44,6 +44,16 @@
         "path": "./syntaxes/sift-typescriptreact.tmLanguage.json"
       }
     ],
+    "configurationDefaults": {
+      "[sift-typescript]": {
+        "editor.guides.indentation": false,
+        "editor.guides.highlightActiveIndentation": false
+      },
+      "[sift-typescriptreact]": {
+        "editor.guides.indentation": false,
+        "editor.guides.highlightActiveIndentation": false
+      }
+    },
     "commands": [
       {
         "command": "sift.siftEditor",
