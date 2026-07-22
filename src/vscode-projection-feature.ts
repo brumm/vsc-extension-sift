@@ -20,8 +20,8 @@ import {
 } from './projection-sessions'
 import { VscodeProjectionBuilder } from './vscode-projection-builder'
 
-const scheme = 'linefilter'
-const storedSessionsKey = 'linefilter.prototype.sessions'
+const scheme = 'sift-editor'
+const storedSessionsKey = 'sift.sessions'
 
 interface FilterSessionRuntime {
   virtualUri: vscode.Uri
@@ -73,7 +73,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     vscode.StatusBarAlignment.Left,
     20,
   )
-  status.command = 'editor-filter.openSource'
+  status.command = 'sift.openSource'
   status.tooltip = 'Open the mapped source location'
 
   const lineNumberDecoration = vscode.window.createTextEditorDecorationType({
@@ -135,7 +135,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       })
     },
     onOpenSource: () => {
-      void vscode.commands.executeCommand('editor-filter.openSource')
+      void vscode.commands.executeCommand('sift.openSource')
     },
     onSearchProject: (session, filter) => {
       void searchProjectFromFile(session, filter)
@@ -148,14 +148,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     if (existing) {
       return existing
     }
-    const targetUri = session.target.kind === 'file'
-      ? session.target.sourceUri
-      : vscode.Uri.joinPath(
-          vscode.Uri.parse(session.target.rootUri),
-          'Project Search',
-        ).toString()
+    const title = session.target.kind === 'file' ? 'Sift Editor' : 'Sift Project'
     const runtime = {
-      virtualUri: makeVirtualUri(session.id, targetUri),
+      virtualUri: makeVirtualUri(session.id, title),
     }
     sessionRuntimes.set(session.id, runtime)
     return runtime
@@ -567,8 +562,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     const input = vscode.window.createInputBox()
     input.title =
       session.target.kind === 'project'
-        ? 'Sift project (updates live)'
-        : 'Sift lines (updates live)'
+        ? 'Sift Project'
+        : 'Sift Editor'
     input.prompt =
       session.target.kind === 'project'
         ? 'Case-insensitive unless Match Case is enabled; fff path constraints are supported'
@@ -883,12 +878,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       isReadonly: false,
     }),
     vscode.commands.registerCommand(
-      'editor-filter.filterThisFile',
+      'sift.siftEditor',
       async () => {
         const sourceEditor = vscode.window.activeTextEditor
         if (!sourceEditor || sourceEditor.document.uri.scheme === scheme) {
           void vscode.window.showWarningMessage(
-            'Open a source file before sifting it.',
+            'Open an editor before sifting it.',
           )
           return
         }
@@ -918,7 +913,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       },
     ),
     vscode.commands.registerCommand(
-      'editor-filter.searchProject',
+      'sift.siftProject',
       async () => {
         const sourceEditor = vscode.window.activeTextEditor
         const sourceSession = sourceEditor?.document.uri.scheme === scheme
@@ -965,11 +960,11 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       },
     ),
     vscode.commands.registerCommand(
-      'editor-filter.focusQueryInput',
+      'sift.focusQueryInput',
       focusQueryInput,
     ),
     vscode.commands.registerCommand(
-      'editor-filter.cursorUpOrFocusQuery',
+      'sift.cursorUpOrFocusQuery',
       async () => {
         const editor = vscode.window.activeTextEditor
         const session = activeSession(sessions)
@@ -992,7 +987,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         await vscode.commands.executeCommand('cursorUp')
       },
     ),
-    vscode.commands.registerCommand('editor-filter.openSource', async () => {
+    vscode.commands.registerCommand('sift.openSource', async () => {
       const editor = vscode.window.activeTextEditor
       const session = activeSession(sessions)
       if (!editor || !session) {
@@ -1175,11 +1170,10 @@ function sessionId(uri: vscode.Uri): string {
   return new URLSearchParams(uri.query).get('session') ?? ''
 }
 
-function makeVirtualUri(id: string, sourceUri: string): vscode.Uri {
-  const basename = path.basename(vscode.Uri.parse(sourceUri).path) || 'filtered'
+function makeVirtualUri(id: string, title: string): vscode.Uri {
   return vscode.Uri.from({
     scheme,
-    path: `/${basename}`,
+    path: `/${title}`,
     query: `session=${encodeURIComponent(id)}`,
   })
 }

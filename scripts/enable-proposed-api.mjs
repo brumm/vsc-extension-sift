@@ -24,7 +24,7 @@ import {
   printParseErrorCode,
 } from 'jsonc-parser'
 
-export const extensionId = 'local.editor-filter'
+export const extensionId = 'local.sift'
 
 export function defaultArgvPath(
   platform = process.platform,

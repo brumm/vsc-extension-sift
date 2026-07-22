@@ -50,7 +50,7 @@ test('appends to an existing proposed API list without discarding comments', () 
   assert.equal(result.changed, true)
   assert.match(result.contents, /\/\/ Keep this extension enabled too\./)
   assert.match(result.contents, /another\.extension/)
-  assert.match(result.contents, /local\.editor-filter/)
+  assert.match(result.contents, /local\.sift/)
 })
 
 test('resolves the current Stable argv.json location by platform', () => {
@@ -112,7 +112,7 @@ test('CLI invocation and argv.json both work through symlinks', {
 
     assert.equal(result.status, 0, result.stderr)
     assert.equal((await lstat(argvLink)).isSymbolicLink(), true)
-    assert.match(await readFile(argvTarget, 'utf8'), /local\.editor-filter/)
+    assert.match(await readFile(argvTarget, 'utf8'), /local\.sift/)
     assert.equal((await stat(argvTarget)).mode & 0o777, 0o664)
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -136,7 +136,7 @@ test('CLI preserves a dangling argv.json symlink and creates its target', {
 
     assert.equal(result.status, 0, result.stderr)
     assert.equal((await lstat(argvLink)).isSymbolicLink(), true)
-    assert.match(await readFile(argvTarget, 'utf8'), /local\.editor-filter/)
+    assert.match(await readFile(argvTarget, 'utf8'), /local\.sift/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

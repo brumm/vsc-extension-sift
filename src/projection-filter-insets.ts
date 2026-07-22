@@ -209,7 +209,7 @@ function filterInsetHtml(
     maximumContextLines,
   }).replaceAll('<', '\\u003c')
   const placeholder =
-    session.target.kind === 'project' ? 'Sift project' : 'Sift lines'
+    session.target.kind === 'project' ? 'Sift Project' : 'Sift Editor'
   const projectSearchButton =
     session.target.kind === 'file'
       ? `<button type="button" data-action="search-project" title="Sift Project" aria-label="Sift Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`

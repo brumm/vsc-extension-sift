@@ -1,8 +1,8 @@
 {
-  "name": "editor-filter",
+  "name": "sift",
   "publisher": "local",
   "displayName": "Sift",
-  "description": "Sift files and projects into focused, editable views.",
+  "description": "Sift editors and projects into focused, editable views.",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.125.0"
@@ -46,38 +46,38 @@
     ],
     "commands": [
       {
-        "command": "editor-filter.filterThisFile",
-        "title": "Sift Current File"
+        "command": "sift.siftEditor",
+        "title": "Sift Editor"
       },
       {
-        "command": "editor-filter.searchProject",
+        "command": "sift.siftProject",
         "title": "Sift Project"
       }
     ],
     "keybindings": [
       {
-        "command": "editor-filter.cursorUpOrFocusQuery",
+        "command": "sift.cursorUpOrFocusQuery",
         "key": "up",
-        "when": "resourceScheme == linefilter && editorTextFocus"
+        "when": "resourceScheme == sift-editor && editorTextFocus"
       },
       {
-        "command": "editor-filter.openSource",
+        "command": "sift.openSource",
         "key": "cmd+enter",
-        "when": "resourceScheme == linefilter && editorTextFocus"
+        "when": "resourceScheme == sift-editor && editorTextFocus"
       },
       {
         "command": "workbench.action.closeActiveEditor",
         "key": "escape",
-        "when": "resourceScheme == linefilter && editorTextFocus && !editorHasMultipleSelections"
+        "when": "resourceScheme == sift-editor && editorTextFocus && !editorHasMultipleSelections"
       },
       {
         "command": "runCommands",
         "key": "cmd+up",
-        "when": "resourceScheme == linefilter && editorTextFocus",
+        "when": "resourceScheme == sift-editor && editorTextFocus",
         "args": {
           "commands": [
             "cursorTop",
-            "editor-filter.focusQueryInput"
+            "sift.focusQueryInput"
           ]
         }
       }
@@ -88,7 +88,7 @@
     "typecheck": "tsc -p ./ --noEmit",
     "compile": "pnpm run typecheck && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "dev": "pnpm run compile && code --enable-proposed-api local.editor-filter --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
+    "dev": "pnpm run compile && code --enable-proposed-api local.sift --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
     "enable-proposed-api": "node scripts/enable-proposed-api.mjs",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",

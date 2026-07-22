@@ -3,8 +3,8 @@ import * as vscode from 'vscode';
 
 suite('Extension Test Suite', () => {
 	test('extension activates', async () => {
-		const extension = vscode.extensions.getExtension('local.editor-filter');
-		assert.ok(extension, 'local.editor-filter should be installed in the test host');
+		const extension = vscode.extensions.getExtension('local.sift');
+		assert.ok(extension, 'local.sift should be installed in the test host');
 		await extension.activate();
 		assert.equal(extension.isActive, true);
 	});
