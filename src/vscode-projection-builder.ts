@@ -30,6 +30,19 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 		}
 
 		const root = vscode.Uri.parse(target.rootUri);
+		if (target.kind === 'paths') {
+			const matches = await this.projectSearch.searchPaths({
+				rootUri: target.rootUri,
+				rootPath: root.fsPath,
+				query: filter.text,
+				resolveUri: relativePath =>
+					vscode.Uri.joinPath(root, relativePath).toString(),
+			});
+			return {
+				projection: ProjectionDocument.forPaths(matches),
+				languageId: 'plaintext',
+			};
+		}
 		if (!filter.text) {
 			return {
 				projection: ProjectionDocument.message('', {

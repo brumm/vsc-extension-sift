@@ -62,9 +62,18 @@
       {
         "command": "sift.siftProject",
         "title": "Sift Project"
+      },
+      {
+        "command": "sift.siftPaths",
+        "title": "Sift Paths"
       }
     ],
     "keybindings": [
+      {
+        "command": "sift.save",
+        "key": "cmd+s",
+        "when": "resourceScheme == sift-editor && editorTextFocus"
+      },
       {
         "command": "sift.cursorUpOrFocusQuery",
         "key": "up",

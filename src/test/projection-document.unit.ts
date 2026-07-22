@@ -198,6 +198,88 @@ test('project projection owns mapped and annotation rows together', () => {
 	);
 });
 
+test('path projection maps editable relative paths to source files', () => {
+	const projection = ProjectionDocument.forPaths([
+		{ uri: 'file:///workspace/src/one.ts', relativePath: 'src/one.ts' },
+		{ uri: 'file:///workspace/src/two.ts', relativePath: 'src/two.ts' },
+	]);
+
+	assert.equal(projection.content, 'src/one.ts\nsrc/two.ts');
+	assert.deepEqual(projection.sourceAt(1, 8), {
+		uri: 'file:///workspace/src/two.ts',
+		line: 0,
+		character: 0,
+	});
+	assert.deepEqual(projection.planPathSave('lib/one.ts\nsrc/two.ts'), {
+		ok: true,
+		renames: [{
+			sourceUri: 'file:///workspace/src/one.ts',
+			before: 'src/one.ts',
+			after: 'lib/one.ts',
+		}],
+	});
+	assert.deepEqual(projection.sourcesAt([
+		{ line: 1, character: 4 },
+		{ line: 0, character: 4 },
+		{ line: 1, character: 9 },
+	]), [
+		{ uri: 'file:///workspace/src/two.ts', line: 0, character: 0 },
+		{ uri: 'file:///workspace/src/one.ts', line: 0, character: 0 },
+	]);
+
+	const accepted = projection.acceptWorkingCopy('lib/one.ts\nsrc/two.ts', [{
+		before: 'file:///workspace/src/one.ts',
+		after: 'file:///workspace/lib/one.ts',
+	}]);
+	assert.deepEqual(accepted.sourceAt(0, 5), {
+		uri: 'file:///workspace/lib/one.ts',
+		line: 0,
+		character: 0,
+	});
+	assert.deepEqual(accepted.planPathSave('archive/one.ts\nsrc/two.ts'), {
+		ok: true,
+		renames: [{
+			sourceUri: 'file:///workspace/lib/one.ts',
+			before: 'lib/one.ts',
+			after: 'archive/one.ts',
+		}],
+	});
+});
+
+test('path save planning rejects inserted rows', () => {
+	const projection = ProjectionDocument.forPaths([
+		{ uri: 'file:///workspace/one.ts', relativePath: 'one.ts' },
+	]);
+
+	assert.deepEqual(projection.planPathSave('one.ts\ntwo.ts'), {
+		ok: false,
+		message: 'Existing path rows may be edited, but rows cannot be inserted or deleted.',
+	});
+});
+
+test('rebuilds a path projection from the last saved editor content', () => {
+	const projection = ProjectionDocument.forPathContent(
+		'new/one.ts\nnew/two.ts\n',
+		(relativePath) => `file:///workspace/${relativePath}`,
+	);
+
+	assert.deepEqual(projection.planPathSave('old/one.ts\nold/two.ts\n'), {
+		ok: true,
+		renames: [
+			{
+				sourceUri: 'file:///workspace/new/one.ts',
+				before: 'new/one.ts',
+				after: 'old/one.ts',
+			},
+			{
+				sourceUri: 'file:///workspace/new/two.ts',
+				before: 'new/two.ts',
+				after: 'old/two.ts',
+			},
+		],
+	});
+});
+
 test('save planning maps an edited projected row back to its source line', () => {
 	const projection = ProjectionDocument.forFile({
 		sourceUri: 'file:///workspace/example.ts',

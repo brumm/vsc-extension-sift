@@ -33,12 +33,14 @@ class DeferredBuilder implements ProjectionBuilder {
 
 class MemoryPersistence implements SessionPersistence {
 	stored: ProjectionSessionDescriptor[] = [];
+	saveCount = 0;
 
 	load(): readonly ProjectionSessionDescriptor[] {
 		return this.stored;
 	}
 
 	async save(sessions: readonly ProjectionSessionDescriptor[]): Promise<void> {
+		this.saveCount += 1;
 		this.stored = [...sessions];
 	}
 }
@@ -80,6 +82,21 @@ test('dirty session queues refresh until save completes', async () => {
 		'refreshed',
 	);
 	assert.equal(session.projection, projection);
+});
+
+test('save completion does not persist an unchanged session descriptor', async () => {
+	const persistence = new MemoryPersistence();
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+	const session = sessions.open(descriptor);
+
+	assert.deepEqual(await sessions.execute(session.id, {
+		kind: 'save-completed',
+		workingCopy: session.projection.content,
+	}), { kind: 'saved', refreshRequired: false });
+	assert.equal(persistence.saveCount, 0);
 });
 
 test('execute refresh builds and commits a projection behind the session seam', async () => {
@@ -167,6 +184,25 @@ test('restoring sessions clamps persisted context lines', () => {
 	);
 
 	assert.equal(sessions.get(descriptor.id)?.filter.contextLines, 5);
+});
+
+test('restores path-search sessions', () => {
+	const persistence = new MemoryPersistence();
+	persistence.stored = [{
+		...descriptor,
+		target: { kind: 'paths', rootUri: 'file:///workspace' },
+		languageId: 'plaintext',
+	}];
+
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+
+	assert.deepEqual(sessions.get(descriptor.id)?.target, {
+		kind: 'paths',
+		rootUri: 'file:///workspace',
+	});
 });
 
 test('closing a session removes it from persistence', async () => {

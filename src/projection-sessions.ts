@@ -2,11 +2,13 @@ import {
 	FilterQuery,
 	normalizeContextLines,
 	ProjectionDocument,
+	ProjectionUriRename,
 } from './projection-document';
 
 export type ProjectionTarget =
 	| { kind: 'file'; sourceUri: string }
-	| { kind: 'project'; rootUri: string };
+	| { kind: 'project'; rootUri: string }
+	| { kind: 'paths'; rootUri: string };
 
 export interface ProjectionSessionDescriptor {
 	id: string;
@@ -22,7 +24,7 @@ export interface SessionPersistence {
 
 interface LegacyStoredSession {
 	id: string;
-	kind?: 'file' | 'project';
+	kind?: 'file' | 'project' | 'paths';
 	sourceUri?: string;
 	rootUri?: string;
 	query?: string;
@@ -47,7 +49,12 @@ export type ProjectionAction =
 	| { kind: 'refresh'; dirty: boolean }
 	| { kind: 'working-copy-changed' }
 	| { kind: 'update-filter'; filter: FilterQuery }
-	| { kind: 'save-completed'; workingCopy: string }
+	| {
+		kind: 'save-completed';
+		workingCopy: string;
+		uriRenames?: readonly ProjectionUriRename[];
+		projection?: ProjectionDocument;
+	}
 	| { kind: 'rename-source'; sourceUri: string };
 
 export type ProjectionActionOutcome =
@@ -204,8 +211,15 @@ export class ProjectionSession {
 		return refresh;
 	}
 
-	acceptWorkingCopy(workingCopy: string): void {
-		this.projectionValue = this.projectionValue.acceptWorkingCopy(workingCopy);
+	acceptWorkingCopy(
+		workingCopy: string,
+		uriRenames?: readonly ProjectionUriRename[],
+		projection?: ProjectionDocument,
+	): void {
+		this.projectionValue = (projection ?? this.projectionValue).acceptWorkingCopy(
+			workingCopy,
+			uriRenames,
+		);
 	}
 
 	dispose(): void {
@@ -269,9 +283,12 @@ export class ProjectionSessions {
 				await this.persist();
 				return { kind: 'updated' };
 			case 'save-completed': {
-				session.acceptWorkingCopy(action.workingCopy);
+				session.acceptWorkingCopy(
+					action.workingCopy,
+					action.uriRenames,
+					action.projection,
+				);
 				const refreshRequired = session.finishSave();
-				await this.persist();
 				return { kind: 'saved', refreshRequired };
 			}
 			case 'refresh':
@@ -309,12 +326,12 @@ export class ProjectionSessions {
 			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			const targetUri = session.target.kind === 'project'
-				? session.target.rootUri
-				: session.target.sourceUri;
-			const content = session.target.kind === 'project'
-				? `Project search failed:\n${targetUri}\n\n${message}`
-				: `Source is unavailable:\n${targetUri}\n\n${message}`;
+			const targetUri = session.target.kind === 'file'
+				? session.target.sourceUri
+				: session.target.rootUri;
+			const content = session.target.kind === 'file'
+				? `Source is unavailable:\n${targetUri}\n\n${message}`
+				: `${session.target.kind === 'paths' ? 'Path' : 'Project'} search failed:\n${targetUri}\n\n${message}`;
 			if (
 				!session.failRefresh(
 					start.revision,
@@ -371,6 +388,9 @@ function normalizeStoredSessions(
 				: candidate.target.kind === 'project' &&
 					typeof candidate.target.rootUri === 'string'
 					? { kind: 'project' as const, rootUri: candidate.target.rootUri }
+					: candidate.target.kind === 'paths' &&
+						typeof candidate.target.rootUri === 'string'
+						? { kind: 'paths' as const, rootUri: candidate.target.rootUri }
 					: undefined;
 			if (!target) {
 				return [];
@@ -383,9 +403,9 @@ function normalizeStoredSessions(
 			}];
 		}
 
-		const target = candidate.kind === 'project'
+		const target = candidate.kind === 'project' || candidate.kind === 'paths'
 			? typeof candidate.rootUri === 'string'
-				? { kind: 'project' as const, rootUri: candidate.rootUri }
+				? { kind: candidate.kind, rootUri: candidate.rootUri }
 				: undefined
 			: candidate.kind === undefined || candidate.kind === 'file'
 				? typeof candidate.sourceUri === 'string'

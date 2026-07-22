@@ -7,6 +7,7 @@ import {
   FilterQuery,
   formatSourceLineNumber,
   makeFilterMatchFinder,
+  ProjectionDocument,
   SourceLocation,
   SourcePosition,
 } from './projection-document'
@@ -32,6 +33,7 @@ interface FilterSessionRuntime {
   refreshTimer?: NodeJS.Timeout
   renderTimer?: NodeJS.Timeout
   suppressSourceRefreshUntil?: number
+  holdPathResults?: boolean
 }
 
 interface RefreshOptions {
@@ -54,7 +56,16 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   let sessions: ProjectionSessions
   const projectSearch = new FffProjectSearch((rootUri) => {
     for (const session of sessions.values()) {
-      if (session.target.kind === 'project' && session.target.rootUri === rootUri) {
+      if (
+        session.target.kind !== 'file' &&
+        session.target.rootUri === rootUri
+      ) {
+        if (
+          session.target.kind === 'paths' &&
+          runtimeFor(session).holdPathResults
+        ) {
+          continue
+        }
         scheduleRefresh(session)
       }
     }
@@ -156,6 +167,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
 
   const filterInsets = new ProjectionFilterInsets({
     onFilterChanged: (session, filter) => {
+      runtimeFor(session).holdPathResults = false
       void sessions.execute(session.id, { kind: 'update-filter', filter })
       scheduleRefresh(session, {
         force: true,
@@ -176,7 +188,11 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     if (existing) {
       return existing
     }
-    const title = session.target.kind === 'file' ? 'Sift Editor' : 'Sift Project'
+    const title = session.target.kind === 'file'
+      ? 'Sift Editor'
+      : session.target.kind === 'paths'
+        ? 'Sift Paths'
+        : 'Sift Project'
     const runtime = {
       virtualUri: makeVirtualUri(session.id, title),
     }
@@ -287,15 +303,18 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       clearEditorDecorations(editor)
       return
     }
+    const isPathSession = session.target.kind === 'paths'
     editor.options = {
       ...editor.options,
-      lineNumbers: vscode.TextEditorLineNumbersStyle.Off,
+      lineNumbers: isPathSession
+        ? vscode.TextEditorLineNumbersStyle.On
+        : vscode.TextEditorLineNumbersStyle.Off,
     }
     const findMatches = makeFilterMatchFinder(session.filter)
     editor.setDecorations(
       lineNumberDecoration,
       session.projection.rows.flatMap((row, projectedLine) =>
-        row.kind === 'mapped'
+        row.kind === 'mapped' && !isPathSession
           ? [
               {
                 range: new vscode.Range(projectedLine, 0, projectedLine, 0),
@@ -332,7 +351,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     editor.setDecorations(
       matchHighlightDecoration,
       session.projection.rows.flatMap((row, projectedLine) => {
-        if (row.kind !== 'mapped') {
+        if (row.kind !== 'mapped' || isPathSession) {
           return []
         }
         const line = editor.document.lineAt(projectedLine).text
@@ -366,7 +385,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         editor.selection.active.character,
       )
     status.text = source
-      ? `$(filter) ${session.filter.text} — ${path.basename(vscode.Uri.parse(source.uri).path)}:${source.line + 1}:${source.character + 1}`
+      ? session.target.kind === 'paths'
+        ? `$(filter) ${session.filter.text} — ${path.relative(vscode.Uri.parse(session.target.rootUri).fsPath, vscode.Uri.parse(source.uri).fsPath)}`
+        : `$(filter) ${session.filter.text} — ${path.basename(vscode.Uri.parse(source.uri).path)}:${source.line + 1}:${source.character + 1}`
       : `$(filter) ${session?.filter.text ?? 'unknown'} — no matches`
     status.show()
   }
@@ -582,24 +603,30 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       clearTimeout(runtimeFor(session).refreshTimer)
     }
     runtimeFor(session).refreshTimer = setTimeout(
-      () => void refresh(session, preserveEditorState),
+      () => {
+        runtimeFor(session).refreshTimer = undefined
+        void refresh(session, preserveEditorState)
+      },
       30,
     )
   }
 
   const showFilterInput = (session: ProjectionSession): void => {
     const input = vscode.window.createInputBox()
-    input.title =
-      session.target.kind === 'project'
-        ? 'Sift Project'
+    input.title = session.target.kind === 'project'
+      ? 'Sift Project'
+      : session.target.kind === 'paths'
+        ? 'Sift Paths'
         : 'Sift Editor'
-    input.prompt =
-      session.target.kind === 'project'
-        ? 'Case-insensitive unless Match Case is enabled; fff path and Git constraints are supported'
+    input.prompt = session.target.kind === 'project'
+      ? 'Case-insensitive unless Match Case is enabled; fff path and Git constraints are supported'
+      : session.target.kind === 'paths'
+        ? 'FFF fuzzy path search; inline glob, exclusion, and Git constraints are supported'
         : 'Literal, case-insensitive substring'
     input.value = session.filter.text
     input.ignoreFocusOut = true
     input.onDidChangeValue((value) => {
+      runtimeFor(session).holdPathResults = false
       void sessions.execute(session.id, {
         kind: 'update-filter',
         filter: { ...session.filter, text: value },
@@ -658,6 +685,42 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       },
       filter,
       languageId,
+    })
+    runtimeFor(session).sourceViewColumn =
+      sourceViewColumn ??
+      vscode.window.visibleTextEditors.find(
+        (editor) => editor.document.uri.scheme !== scheme,
+      )?.viewColumn ??
+      vscode.window.activeTextEditor?.viewColumn ??
+      vscode.ViewColumn.One
+    await refresh(session)
+    const hasInset = await showSession(session, focusFilterInput, viewColumn)
+    if (focusFilterInput && !hasInset) {
+      showFilterInput(session)
+    }
+  }
+
+  const openPathSearch = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    query: string,
+    focusFilterInput: boolean,
+    sourceViewColumn?: vscode.ViewColumn,
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
+  ): Promise<void> => {
+    const session = sessions.open({
+      id: randomUUID(),
+      target: {
+        kind: 'paths',
+        rootUri: workspaceFolder.uri.toString(),
+      },
+      filter: {
+        text: query,
+        matchCase: false,
+        wholeWord: false,
+        useRegex: false,
+        contextLines: 0,
+      },
+      languageId: 'plaintext',
     })
     runtimeFor(session).sourceViewColumn =
       sourceViewColumn ??
@@ -863,32 +926,85 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       throw vscode.FileSystemError.FileNotFound(uri)
     }
 
-    const outcome = await saveCoordinator.save(
-      session.projection,
-      content,
-      () => {
-        runtimeFor(session).suppressSourceRefreshUntil = Date.now() + 1_000
-      },
-    )
+    const beforeApply = (): void => {
+      runtimeFor(session).suppressSourceRefreshUntil = Date.now() + 1_000
+    }
+    let saveProjection = session.projection
+    let savedPathContent: string | undefined
+    if (session.target.kind === 'paths') {
+      const rootUri = vscode.Uri.parse(session.target.rootUri)
+      savedPathContent = new TextDecoder().decode(provider.readFile(uri))
+      saveProjection = ProjectionDocument.forPathContent(
+        savedPathContent,
+        (relativePath) => vscode.Uri.joinPath(
+          rootUri,
+          ...relativePath.split('/'),
+        ).toString(),
+      )
+      output.appendLine('\n=== path save requested ===')
+      output.appendLine(`Session: ${session.id}`)
+      output.appendLine(`Saved paths:\n${savedPathContent}`)
+      output.appendLine(`Working paths:\n${content}`)
+    }
+    const outcome = session.target.kind === 'paths'
+      ? await saveCoordinator.savePaths(
+          saveProjection,
+          content,
+          vscode.Uri.parse(session.target.rootUri),
+          beforeApply,
+        )
+      : await saveCoordinator.save(
+          session.projection,
+          content,
+          beforeApply,
+        )
     if (!outcome.ok) {
+      if (session.target.kind === 'paths') {
+        output.appendLine(`Path save failed: ${outcome.kind}: ${outcome.message}`)
+      }
       void vscode.window.showErrorMessage(outcome.message)
       throw outcome.kind === 'invalid-working-copy'
         ? vscode.FileSystemError.NoPermissions(outcome.message)
         : vscode.FileSystemError.Unavailable(outcome.message)
     }
+    if (session.target.kind === 'paths') {
+      output.appendLine(`Path save completed: ${outcome.editCount} rename${outcome.editCount === 1 ? '' : 's'}`)
+      for (const rename of outcome.uriRenames ?? []) {
+        output.appendLine(`${vscode.Uri.parse(rename.before).fsPath} -> ${vscode.Uri.parse(rename.after).fsPath}`)
+      }
+    }
+    if (session.target.kind === 'paths' && outcome.editCount > 0) {
+      const runtime = runtimeFor(session)
+      runtime.holdPathResults = true
+      if (runtime.refreshTimer) {
+        clearTimeout(runtime.refreshTimer)
+        runtime.refreshTimer = undefined
+      }
+    }
     const saved = await sessions.execute(session.id, {
       kind: 'save-completed',
       workingCopy: content,
+      uriRenames: outcome.uriRenames,
+      projection: session.target.kind === 'paths' ? saveProjection : undefined,
     })
+    if (session.target.kind === 'paths') {
+      output.appendLine(`Path session committed: ${saved.kind}`)
+    }
     const refreshAfterSave =
       saved.kind === 'saved' && saved.refreshRequired
     if (outcome.editCount > 0) {
       void vscode.window.setStatusBarMessage(
-        `Sift: saved ${outcome.editCount} projected line${outcome.editCount === 1 ? '' : 's'} to ${outcome.fileCount} file${outcome.fileCount === 1 ? '' : 's'}`,
+        session.target.kind === 'paths'
+          ? `Sift: renamed ${outcome.editCount} path${outcome.editCount === 1 ? '' : 's'}`
+          : `Sift: saved ${outcome.editCount} projected line${outcome.editCount === 1 ? '' : 's'} to ${outcome.fileCount} file${outcome.fileCount === 1 ? '' : 's'}`,
         3_000,
       )
     }
-    if (refreshAfterSave) {
+    for (const warning of outcome.warnings ?? []) {
+      output.appendLine(warning)
+      void vscode.window.showWarningMessage(warning)
+    }
+    if (refreshAfterSave && session.target.kind !== 'paths') {
       setTimeout(() => scheduleRefresh(session, { force: true }), 0)
     }
   })
@@ -990,6 +1106,44 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       },
     ),
     vscode.commands.registerCommand(
+      'sift.siftPaths',
+      async () => {
+        const sourceEditor = vscode.window.activeTextEditor
+        const sourceSession = sourceEditor?.document.uri.scheme === scheme
+          ? sessions.get(sessionId(sourceEditor.document.uri))
+          : undefined
+        const activeDocument = sourceEditor?.document.uri.scheme === scheme
+          ? undefined
+          : sourceEditor?.document
+        const { workspaceFolder, sourceDocument } = selectProjectWorkspace(
+          activeDocument,
+          (document) => vscode.workspace.getWorkspaceFolder(document.uri),
+          vscode.workspace.workspaceFolders,
+          (folder) => folder.uri.scheme === 'file',
+        )
+        if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+          void vscode.window.showWarningMessage(
+            'Open a local workspace folder before sifting paths.',
+          )
+          return
+        }
+
+        const initialQuery = sourceEditor && sourceDocument
+          ? sourceDocument.getText(sourceEditor.selections[0])
+          : ''
+        await openPathSearch(
+          workspaceFolder,
+          initialQuery,
+          !initialQuery,
+          sourceDocument
+            ? sourceEditor?.viewColumn
+            : sourceSession
+              ? runtimeFor(sourceSession).sourceViewColumn
+              : undefined,
+        )
+      },
+    ),
+    vscode.commands.registerCommand(
       'sift.focusQueryInput',
       focusQueryInput,
     ),
@@ -1017,25 +1171,39 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         await vscode.commands.executeCommand('cursorUp')
       },
     ),
+    vscode.commands.registerCommand('sift.save', async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor || editor.document.uri.scheme !== scheme) {
+        return
+      }
+      output.appendLine('\n=== sift save command ===')
+      output.appendLine(`Document: ${editor.document.uri.toString()}`)
+      output.appendLine(`Dirty: ${editor.document.isDirty}`)
+      const saved = await editor.document.save()
+      output.appendLine(`Save accepted: ${saved}`)
+      if (!saved) {
+        void vscode.window.showErrorMessage(
+          'VS Code rejected the Sift Paths save. See the Sift output for details.',
+        )
+      }
+    }),
     vscode.commands.registerCommand('sift.openSource', async () => {
       const editor = vscode.window.activeTextEditor
       const session = activeSession(sessions)
       if (!editor || !session) {
         return
       }
-      const source = sourceAt(
-        session,
-        editor.selection.active.line,
-        editor.selection.active.character,
+      const sources = session.projection.sourcesAt(
+        editor.selections.map((selection) => selection.active),
       )
-      if (!source) {
+      if (sources.length === 0) {
         return
       }
-      const sourceUri = vscode.Uri.parse(source.uri)
+      const primarySourceUri = vscode.Uri.parse(sources[0].uri)
       const runtime = runtimeFor(session)
       const visibleSourceEditor = vscode.window.visibleTextEditors.find(
         (candidate) =>
-          candidate.document.uri.toString() === sourceUri.toString() &&
+          candidate.document.uri.toString() === primarySourceUri.toString() &&
           (
             runtime.sourceViewColumn === undefined ||
             candidate.viewColumn === runtime.sourceViewColumn
@@ -1043,15 +1211,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       )
       const sourceViewColumn =
         visibleSourceEditor?.viewColumn ?? runtime.sourceViewColumn
-      const document = await vscode.workspace.openTextDocument(
-        sourceUri,
-      )
-      const line = Math.min(source.line, document.lineCount - 1)
-      const character = Math.min(
-        source.character,
-        document.lineAt(line).text.length,
-      )
-      const selection = new vscode.Selection(line, character, line, character)
       if (
         vscode.window.activeTextEditor?.document.uri.toString() ===
         editor.document.uri.toString()
@@ -1060,21 +1219,33 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           'workbench.action.closeActiveEditor',
         )
       }
-      const showOptions: vscode.TextDocumentShowOptions = {
-        viewColumn: sourceViewColumn,
-        selection,
+      const orderedSources = [...sources.slice(1), sources[0]]
+      for (const source of orderedSources) {
+        const document = await vscode.workspace.openTextDocument(
+          vscode.Uri.parse(source.uri),
+        )
+        const line = Math.min(source.line, document.lineCount - 1)
+        const character = Math.min(
+          source.character,
+          document.lineAt(line).text.length,
+        )
+        const selection = new vscode.Selection(line, character, line, character)
+        const showOptions: vscode.TextDocumentShowOptions = {
+          viewColumn: sourceViewColumn,
+          selection,
+        }
+        if (session.target.kind !== 'file' || sources.length > 1) {
+          showOptions.preview = false
+        }
+        const sourceEditor = await vscode.window.showTextDocument(
+          document,
+          showOptions,
+        )
+        sourceEditor.revealRange(
+          sourceEditor.selection,
+          vscode.TextEditorRevealType.InCenter,
+        )
       }
-      if (session.target.kind === 'project') {
-        showOptions.preview = false
-      }
-      const sourceEditor = await vscode.window.showTextDocument(
-        document,
-        showOptions,
-      )
-      sourceEditor.revealRange(
-        sourceEditor.selection,
-        vscode.TextEditorRevealType.InCenter,
-      )
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document.uri.scheme === scheme) {

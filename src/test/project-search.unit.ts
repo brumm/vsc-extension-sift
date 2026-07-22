@@ -1,13 +1,90 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
+	allPathSearchMatches,
 	byteRangesToFilterMatches,
 	compileFffQuery,
 	projectSearchMatchesFromGrep,
 } from '../project-search';
+
+test('passes the raw FFF path query through every result page', () => {
+	const query = '**/foo/*.ts !test/ git:modified fuzzy term';
+	const calls: { query: string; pageIndex?: number; pageSize?: number }[] = [];
+	const finder = {
+		fileSearch(receivedQuery: string, options?: { pageIndex?: number; pageSize?: number }) {
+			calls.push({ query: receivedQuery, ...options });
+			const relativePath = options?.pageIndex === 0
+				? 'src/foo/one.ts'
+				: 'src/foo/two.ts';
+			return {
+				ok: true as const,
+				value: {
+					items: [{
+						relativePath,
+						fileName: relativePath.split('/').at(-1)!,
+						size: 0,
+						modified: 0,
+						accessFrecencyScore: 0,
+						modificationFrecencyScore: 0,
+						totalFrecencyScore: 0,
+						gitStatus: 'clean',
+					}],
+					scores: [],
+					totalMatched: 2,
+					totalFiles: 2,
+				},
+			};
+		},
+	};
+
+	assert.deepEqual(
+		allPathSearchMatches(
+			finder as Parameters<typeof allPathSearchMatches>[0],
+			query,
+			relativePath => `file:///workspace/${relativePath}`,
+		),
+		[
+			{ uri: 'file:///workspace/src/foo/one.ts', relativePath: 'src/foo/one.ts' },
+			{ uri: 'file:///workspace/src/foo/two.ts', relativePath: 'src/foo/two.ts' },
+		],
+	);
+	assert.deepEqual(calls, [
+		{ query, pageIndex: 0, pageSize: 1_000 },
+		{ query, pageIndex: 1, pageSize: 1_000 },
+	]);
+});
+
+test('FFF path search applies inline glob and exclusion constraints', async t => {
+	const directory = await mkdtemp(join(tmpdir(), 'sift-fff-paths-'));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	await mkdir(join(directory, 'src/foo'), { recursive: true });
+	await mkdir(join(directory, 'test/foo'), { recursive: true });
+	await writeFile(join(directory, 'src/foo/one.ts'), '');
+	await writeFile(join(directory, 'src/foo/two.js'), '');
+	await writeFile(join(directory, 'test/foo/one.ts'), '');
+
+	const { FileFinder } = await import('@ff-labs/fff-node');
+	const created = FileFinder.create({ basePath: directory });
+	assert.equal(created.ok, true);
+	if (!created.ok) {
+		return;
+	}
+	const finder = created.value;
+	t.after(() => finder.destroy());
+	assert.equal((await finder.waitForIndexReady(10_000)).ok, true);
+
+	assert.deepEqual(
+		allPathSearchMatches(
+			finder,
+			'**/foo/*.ts !test/ one',
+			relativePath => relativePath,
+		).map(match => match.relativePath),
+		['src/foo/one.ts'],
+	);
+});
 
 test('converts fff UTF-8 byte ranges to VS Code UTF-16 columns', () => {
 	assert.deepEqual(

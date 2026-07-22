@@ -17,6 +17,11 @@ export interface ProjectSearchPage {
 	hasMore: boolean;
 }
 
+export interface PathSearchMatch {
+	uri: string;
+	relativePath: string;
+}
+
 export class FffProjectSearch {
 	private readonly finders = new Map<string, FinderEntry>();
 	private readonly finderPromises = new Map<string, Promise<FileFinder>>();
@@ -58,6 +63,16 @@ export class FffProjectSearch {
 			),
 			hasMore: Boolean(result.value.nextCursor),
 		};
+	}
+
+	async searchPaths(input: {
+		rootUri: string;
+		rootPath: string;
+		query: string;
+		resolveUri(relativePath: string): string;
+	}): Promise<PathSearchMatch[]> {
+		const finder = await this.getFinder(input.rootUri, input.rootPath);
+		return allPathSearchMatches(finder, input.query, input.resolveUri);
 	}
 
 	private filesMatchingGitConstraints(
@@ -142,6 +157,31 @@ export class FffProjectSearch {
 			unsubscribe: watched.ok ? watched.value : undefined,
 		});
 		return finder;
+	}
+}
+
+export function allPathSearchMatches(
+	finder: Pick<FileFinder, 'fileSearch'>,
+	query: string,
+	resolveUri: (relativePath: string) => string,
+): PathSearchMatch[] {
+	const matches: PathSearchMatch[] = [];
+	const pageSize = 1_000;
+	for (let pageIndex = 0; ; pageIndex += 1) {
+		const result = finder.fileSearch(query, { pageIndex, pageSize });
+		if (!result.ok) {
+			throw new Error(result.error);
+		}
+		matches.push(...result.value.items.map(item => ({
+			uri: resolveUri(item.relativePath),
+			relativePath: item.relativePath.replaceAll('\\', '/'),
+		})));
+		if (
+			matches.length >= result.value.totalMatched ||
+			result.value.items.length === 0
+		) {
+			return matches;
+		}
 	}
 }
 

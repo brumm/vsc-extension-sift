@@ -38,6 +38,7 @@ export type ProjectionRow =
 		kind: 'mapped';
 		source: SourceLine;
 		baseline: string;
+		role?: 'path';
 		matches?: readonly FilterMatch[];
 	}
 	| {
@@ -71,6 +72,26 @@ export interface ProjectSearchMatch {
 	text: string;
 	matches: readonly FilterMatch[];
 }
+
+export interface PathProjectionInput {
+	uri: string;
+	relativePath: string;
+}
+
+export interface ProjectionPathRename {
+	sourceUri: string;
+	before: string;
+	after: string;
+}
+
+export interface ProjectionUriRename {
+	before: string;
+	after: string;
+}
+
+export type ProjectionPathSavePlan =
+	| { ok: true; renames: ProjectionPathRename[] }
+	| { ok: false; message: string };
 
 export class ProjectionDocument {
 	private constructor(
@@ -162,6 +183,39 @@ export class ProjectionDocument {
 		);
 	}
 
+	static forPaths(paths: readonly PathProjectionInput[]): ProjectionDocument {
+		if (paths.length === 0) {
+			return ProjectionDocument.message('');
+		}
+		return new ProjectionDocument(
+			paths.map(path => path.relativePath).join('\n'),
+			paths.map(path => ({
+				kind: 'mapped' as const,
+				source: { uri: path.uri, line: 0 },
+				baseline: path.relativePath,
+				role: 'path' as const,
+			})),
+			1,
+		);
+	}
+
+	static forPathContent(
+		content: string,
+		resolveUri: (relativePath: string) => string,
+	): ProjectionDocument {
+		const relativePaths = content.split(/\r?\n/);
+		if (relativePaths.length > 1 && relativePaths.at(-1) === '') {
+			relativePaths.pop();
+		}
+		if (relativePaths.length === 1 && relativePaths[0] === '') {
+			return ProjectionDocument.forPaths([]);
+		}
+		return ProjectionDocument.forPaths(relativePaths.map(relativePath => ({
+			uri: resolveUri(relativePath),
+			relativePath,
+		})));
+	}
+
 	static message(content: string, options?: {
 		label?: string;
 		sourceUri?: string;
@@ -182,7 +236,7 @@ export class ProjectionDocument {
 	sourceAt(projectedLine: number, character: number): SourceLocation | undefined {
 		const row = this.rows[projectedLine];
 		if (row?.kind === 'mapped') {
-			return { ...row.source, character };
+			return { ...row.source, character: row.role === 'path' ? 0 : character };
 		}
 		if (row?.kind === 'annotation' && row.role === 'header') {
 			const next = this.rows
@@ -193,6 +247,17 @@ export class ProjectionDocument {
 			return next ? { ...next.source, character: 0 } : undefined;
 		}
 		return undefined;
+	}
+
+	sourcesAt(positions: readonly SourcePosition[]): SourceLocation[] {
+		const sources = new Map<string, SourceLocation>();
+		for (const position of positions) {
+			const source = this.sourceAt(position.line, position.character);
+			if (source && !sources.has(source.uri)) {
+				sources.set(source.uri, source);
+			}
+		}
+		return [...sources.values()];
 	}
 
 	projectedAt(source: SourceLocation): SourcePosition | undefined {
@@ -210,16 +275,30 @@ export class ProjectionDocument {
 		return { line: candidate.line, character: source.character };
 	}
 
-	acceptWorkingCopy(workingCopy: string): ProjectionDocument {
+	acceptWorkingCopy(
+		workingCopy: string,
+		uriRenames: readonly ProjectionUriRename[] = [],
+	): ProjectionDocument {
 		const lines = workingCopy.split(/\r?\n/);
+		const renamedUris = new Map(
+			uriRenames.map(rename => [rename.before, rename.after]),
+		);
 		const rows = this.rows.map((row, line): ProjectionRow => {
 			if (row.kind !== 'mapped') {
 				return row;
 			}
 			const baseline = lines[line] ?? row.baseline;
-			return baseline === row.baseline
+			const renamedUri = renamedUris.get(row.source.uri);
+			return baseline === row.baseline && !renamedUri
 				? row
-				: { ...row, baseline, matches: undefined };
+				: {
+					...row,
+					source: renamedUri
+						? { ...row.source, uri: renamedUri }
+						: row.source,
+					baseline,
+					matches: undefined,
+				};
 		});
 		if (lines.length === rows.length + 1 && lines.at(-1) === '') {
 			rows.push({ kind: 'annotation', role: 'terminal' });
@@ -271,6 +350,37 @@ export class ProjectionDocument {
 			}
 		}
 		return { ok: true, edits };
+	}
+
+	planPathSave(workingCopy: string): ProjectionPathSavePlan {
+		const beforeLines = projectionSaveLines(this.content, this.rows.length);
+		const afterLines = projectionSaveLines(workingCopy, this.rows.length);
+		if (
+			beforeLines.length !== this.rows.length ||
+			afterLines.length !== this.rows.length
+		) {
+			return {
+				ok: false,
+				message: 'Existing path rows may be edited, but rows cannot be inserted or deleted.',
+			};
+		}
+
+		const renames: ProjectionPathRename[] = [];
+		for (let line = 0; line < this.rows.length; line += 1) {
+			if (beforeLines[line] === afterLines[line]) {
+				continue;
+			}
+			const row = this.rows[line];
+			if (row.kind !== 'mapped' || row.role !== 'path') {
+				return { ok: false, message: 'Only path rows can be renamed.' };
+			}
+			renames.push({
+				sourceUri: row.source.uri,
+				before: beforeLines[line],
+				after: afterLines[line],
+			});
+		}
+		return { ok: true, renames };
 	}
 }
 

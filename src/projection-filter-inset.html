@@ -155,10 +155,15 @@
       width: 16px;
       height: 16px;
     }
+
+    .query-only .options,
+    .query-only .context-control {
+      display: none;
+    }
   </style>
 </head>
 
-<body>
+<body class="__SIFT_BODY_CLASS__">
   <div class="filter-row">
     <div class="input-shell">
       <input id="query" type="text" placeholder="__SIFT_PLACEHOLDER__" aria-label="__SIFT_PLACEHOLDER__"
