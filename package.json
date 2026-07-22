@@ -56,6 +56,11 @@
     ],
     "keybindings": [
       {
+        "command": "editor-filter.cursorUpOrFocusQuery",
+        "key": "up",
+        "when": "resourceScheme == linefilter && editorTextFocus"
+      },
+      {
         "command": "editor-filter.openSource",
         "key": "cmd+enter",
         "when": "resourceScheme == linefilter && editorTextFocus"

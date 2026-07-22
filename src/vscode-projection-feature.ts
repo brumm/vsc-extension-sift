@@ -25,6 +25,10 @@ const storedSessionsKey = 'linefilter.prototype.sessions'
 
 interface FilterSessionRuntime {
   virtualUri: vscode.Uri
+  sourceViewColumn?: vscode.ViewColumn
+  sourceRevealTimer?: NodeJS.Timeout
+  sourceRevealGeneration?: number
+  resetEditorPosition?: boolean
   refreshTimer?: NodeJS.Timeout
   renderTimer?: NodeJS.Timeout
   suppressSourceRefreshUntil?: number
@@ -97,7 +101,31 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
 
+  const sourceLineHighlightDecoration =
+    vscode.window.createTextEditorDecorationType({
+      isWholeLine: true,
+      backgroundColor: new vscode.ThemeColor('editor.findMatchBackground'),
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+    })
+
+  const clearSourceLineHighlight = (): void => {
+    for (const editor of vscode.window.visibleTextEditors) {
+      editor.setDecorations(sourceLineHighlightDecoration, [])
+    }
+  }
+
+  const highlightSourceLine = (
+    editor: vscode.TextEditor,
+    line: number,
+  ): void => {
+    clearSourceLineHighlight()
+    editor.setDecorations(sourceLineHighlightDecoration, [
+      new vscode.Range(line, 0, line, 0),
+    ])
+  }
+
   const pendingAnchors = new Map<string, EditorAnchor[]>()
+  const projectedSelectionLines = new WeakMap<vscode.TextEditor, number>()
   const filterInsets = new ProjectionFilterInsets({
     onFilterChanged: (session, filter) => {
       void sessions.execute(session.id, { kind: 'update-filter', filter })
@@ -141,6 +169,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }
     if (runtime?.renderTimer) {
       clearTimeout(runtime.renderTimer)
+    }
+    if (runtime?.sourceRevealTimer) {
+      clearTimeout(runtime.sourceRevealTimer)
     }
     provider.forget(uri)
     sessionRuntimes.delete(id)
@@ -358,6 +389,21 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       clearSessionDecorations(session)
       return
     }
+    if (runtimeFor(session).resetEditorPosition) {
+      for (const editor of vscode.window.visibleTextEditors) {
+        if (
+          editor.document.uri.toString() ===
+          runtimeFor(session).virtualUri.toString()
+        ) {
+          editor.selection = new vscode.Selection(0, 0, 0, 0)
+          editor.revealRange(
+            new vscode.Range(0, 0, 0, 0),
+            vscode.TextEditorRevealType.AtTop,
+          )
+        }
+      }
+      runtimeFor(session).resetEditorPosition = false
+    }
     for (const anchor of anchors) {
       const selections = anchor.selections.flatMap((selection) => {
         const start = projectedAt(session, selection.anchor)
@@ -489,6 +535,18 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       preserveEditorState = true,
     } = options
     const runtime = runtimeFor(session)
+    if (!preserveEditorState) {
+      runtime.resetEditorPosition = true
+      for (const editor of vscode.window.visibleTextEditors) {
+        if (editor.document.uri.toString() === runtime.virtualUri.toString()) {
+          editor.selection = new vscode.Selection(0, 0, 0, 0)
+          editor.revealRange(
+            new vscode.Range(0, 0, 0, 0),
+            vscode.TextEditorRevealType.AtTop,
+          )
+        }
+      }
+    }
     if (
       !force &&
       runtime.suppressSourceRefreshUntil &&
@@ -538,6 +596,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const showSession = async (
     session: ProjectionSession,
     focusFilterInput = false,
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
   ): Promise<boolean> => {
     const document = await vscode.workspace.openTextDocument(runtimeFor(session).virtualUri)
     const displayLanguageId = projectionLanguageId(session.languageId)
@@ -549,6 +608,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             displayLanguageId,
           )
     const editor = await vscode.window.showTextDocument(languageDocument, {
+      viewColumn,
       preview: false,
     })
     decorateEditor(editor)
@@ -562,6 +622,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     filter: FilterQuery,
     languageId: string,
     focusFilterInput: boolean,
+    sourceViewColumn?: vscode.ViewColumn,
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
   ): Promise<void> => {
     const session = sessions.open({
       id: randomUUID(),
@@ -572,8 +634,15 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       filter,
       languageId,
     })
+    runtimeFor(session).sourceViewColumn =
+      sourceViewColumn ??
+      vscode.window.visibleTextEditors.find(
+        (editor) => editor.document.uri.scheme !== scheme,
+      )?.viewColumn ??
+      vscode.window.activeTextEditor?.viewColumn ??
+      vscode.ViewColumn.One
     await refresh(session)
-    const hasInset = await showSession(session, focusFilterInput)
+    const hasInset = await showSession(session, focusFilterInput, viewColumn)
     if (focusFilterInput && !hasInset) {
       showFilterInput(session)
     }
@@ -595,7 +664,161 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       )
       return
     }
-    await openProjectSearch(workspaceFolder, filter, session.languageId, true)
+    const projectionEditor = vscode.window.visibleTextEditors.find(
+      (editor) =>
+        editor.document.uri.toString() ===
+        runtimeFor(session).virtualUri.toString(),
+    )
+    await openProjectSearch(
+      workspaceFolder,
+      filter,
+      session.languageId,
+      true,
+      runtimeFor(session).sourceViewColumn,
+      projectionEditor?.viewColumn ?? vscode.ViewColumn.Beside,
+    )
+  }
+
+  const revealSourceForSelection = async (
+    editor: vscode.TextEditor,
+  ): Promise<void> => {
+    if (
+      editor.document.uri.scheme !== scheme ||
+      vscode.window.activeTextEditor !== editor
+    ) {
+      return
+    }
+    const session = sessions.get(sessionId(editor.document.uri))
+    if (!session) {
+      return
+    }
+    const source = sourceAt(
+      session,
+      editor.selection.active.line,
+      editor.selection.active.character,
+    )
+    if (!source) {
+      clearSourceLineHighlight()
+      return
+    }
+    const runtime = runtimeFor(session)
+    const generation = (runtime.sourceRevealGeneration ?? 0) + 1
+    runtime.sourceRevealGeneration = generation
+    const sourceUri = vscode.Uri.parse(source.uri)
+    const visibleSourceEditor = vscode.window.visibleTextEditors.find(
+      (candidate) =>
+        candidate.document.uri.toString() === sourceUri.toString() &&
+        (
+          runtime.sourceViewColumn === undefined ||
+          candidate.viewColumn === runtime.sourceViewColumn
+        ),
+    )
+
+    if (session.target.kind === 'file') {
+      if (!visibleSourceEditor) {
+        return
+      }
+      const line = Math.min(source.line, visibleSourceEditor.document.lineCount - 1)
+      visibleSourceEditor.revealRange(
+        new vscode.Range(line, 0, line, 0),
+        vscode.TextEditorRevealType.InCenter,
+      )
+      highlightSourceLine(visibleSourceEditor, line)
+      return
+    }
+
+    const document = await vscode.workspace.openTextDocument(sourceUri)
+    if (runtime.sourceRevealGeneration !== generation) {
+      return
+    }
+    const line = Math.min(source.line, document.lineCount - 1)
+    const character = Math.min(
+      source.character,
+      document.lineAt(line).text.length,
+    )
+    const selection = new vscode.Selection(line, character, line, character)
+    const sourceEditor = await vscode.window.showTextDocument(document, {
+      viewColumn: runtime.sourceViewColumn,
+      preserveFocus: true,
+      preview: true,
+      selection,
+    })
+    if (runtime.sourceRevealGeneration !== generation) {
+      return
+    }
+    sourceEditor.revealRange(selection, vscode.TextEditorRevealType.InCenter)
+    highlightSourceLine(sourceEditor, line)
+  }
+
+  const scheduleSourceReveal = (editor: vscode.TextEditor): void => {
+    if (editor.document.uri.scheme !== scheme) {
+      return
+    }
+    const session = sessions.get(sessionId(editor.document.uri))
+    if (!session) {
+      return
+    }
+    const runtime = runtimeFor(session)
+    if (runtime.sourceRevealTimer) {
+      clearTimeout(runtime.sourceRevealTimer)
+    }
+    runtime.sourceRevealTimer = setTimeout(
+      () => void revealSourceForSelection(editor),
+      20,
+    )
+  }
+
+  const skipProjectAnnotations = (
+    event: vscode.TextEditorSelectionChangeEvent,
+  ): boolean => {
+    const editor = event.textEditor
+    if (editor.document.uri.scheme !== scheme) {
+      return false
+    }
+    const session = sessions.get(sessionId(editor.document.uri))
+    const line = editor.selection.active.line
+    if (!session || session.projection.rows[line]?.kind !== 'annotation') {
+      projectedSelectionLines.set(editor, line)
+      return false
+    }
+    const row = session.projection.rows[line]
+    if (row.role !== 'spacer' && row.role !== 'header') {
+      projectedSelectionLines.set(editor, line)
+      return false
+    }
+    const previousLine = projectedSelectionLines.get(editor) ?? line - 1
+    const direction = event.kind === vscode.TextEditorSelectionChangeKind.Mouse
+      ? 1
+      : line >= previousLine ? 1 : -1
+    const findResultLine = (step: number): number | undefined => {
+      for (
+        let candidate = line + step;
+        candidate >= 0 && candidate < session.projection.rows.length;
+        candidate += step
+      ) {
+        if (session.projection.rows[candidate]?.kind === 'mapped') {
+          return candidate
+        }
+      }
+      return undefined
+    }
+    const targetLine =
+      findResultLine(direction) ??
+      (row.role === 'header' ? findResultLine(1) : undefined)
+    if (targetLine === undefined) {
+      return false
+    }
+    const targetCharacter = Math.min(
+      editor.selection.active.character,
+      editor.document.lineAt(targetLine).text.length,
+    )
+    editor.selection = new vscode.Selection(
+      targetLine,
+      targetCharacter,
+      targetLine,
+      targetCharacter,
+    )
+    return true
   }
 
   const focusQueryInput = (): void => {
@@ -652,6 +875,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     lineNumberDecoration,
     fileHeaderDecoration,
     matchHighlightDecoration,
+    sourceLineHighlightDecoration,
     filterInsets,
     projectSearch,
     vscode.workspace.registerFileSystemProvider(scheme, provider, {
@@ -685,6 +909,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           },
           languageId: sourceEditor.document.languageId,
         })
+        runtimeFor(session).sourceViewColumn = sourceEditor.viewColumn
         await refresh(session)
         const hasInset = await showSession(session, !initialQuery)
         if (!initialQuery && !hasInset) {
@@ -696,6 +921,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       'editor-filter.searchProject',
       async () => {
         const sourceEditor = vscode.window.activeTextEditor
+        const sourceSession = sourceEditor?.document.uri.scheme === scheme
+          ? sessions.get(sessionId(sourceEditor.document.uri))
+          : undefined
         const activeDocument =
           sourceEditor?.document.uri.scheme === scheme
             ? undefined
@@ -728,12 +956,41 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           },
           sourceDocument?.languageId ?? 'plaintext',
           !initialQuery,
+          sourceDocument
+            ? sourceEditor?.viewColumn
+            : sourceSession
+              ? runtimeFor(sourceSession).sourceViewColumn
+              : undefined,
         )
       },
     ),
     vscode.commands.registerCommand(
       'editor-filter.focusQueryInput',
       focusQueryInput,
+    ),
+    vscode.commands.registerCommand(
+      'editor-filter.cursorUpOrFocusQuery',
+      async () => {
+        const editor = vscode.window.activeTextEditor
+        const session = activeSession(sessions)
+        if (!editor || !session) {
+          await vscode.commands.executeCommand('cursorUp')
+          return
+        }
+        const line = editor.selection.active.line
+        const hasResultAbove = session.projection.rows
+          .slice(0, line)
+          .some((row) => row.kind === 'mapped')
+        if (
+          editor.selections.length === 1 &&
+          editor.selection.isEmpty &&
+          !hasResultAbove
+        ) {
+          focusQueryInput()
+          return
+        }
+        await vscode.commands.executeCommand('cursorUp')
+      },
     ),
     vscode.commands.registerCommand('editor-filter.openSource', async () => {
       const editor = vscode.window.activeTextEditor
@@ -749,8 +1006,20 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       if (!source) {
         return
       }
+      const sourceUri = vscode.Uri.parse(source.uri)
+      const runtime = runtimeFor(session)
+      const visibleSourceEditor = vscode.window.visibleTextEditors.find(
+        (candidate) =>
+          candidate.document.uri.toString() === sourceUri.toString() &&
+          (
+            runtime.sourceViewColumn === undefined ||
+            candidate.viewColumn === runtime.sourceViewColumn
+          ),
+      )
+      const sourceViewColumn =
+        visibleSourceEditor?.viewColumn ?? runtime.sourceViewColumn
       const document = await vscode.workspace.openTextDocument(
-        vscode.Uri.parse(source.uri),
+        sourceUri,
       )
       const line = Math.min(source.line, document.lineCount - 1)
       const character = Math.min(
@@ -758,7 +1027,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         document.lineAt(line).text.length,
       )
       const selection = new vscode.Selection(line, character, line, character)
-      const viewColumn = editor.viewColumn
       if (
         vscode.window.activeTextEditor?.document.uri.toString() ===
         editor.document.uri.toString()
@@ -767,14 +1035,20 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           'workbench.action.closeActiveEditor',
         )
       }
-      const sourceEditor = await vscode.window.showTextDocument(document, {
-        viewColumn,
-        preview: false,
+      const showOptions: vscode.TextDocumentShowOptions = {
+        viewColumn: sourceViewColumn,
         selection,
-      })
+      }
+      if (session.target.kind === 'project') {
+        showOptions.preview = false
+      }
+      const sourceEditor = await vscode.window.showTextDocument(
+        document,
+        showOptions,
+      )
       sourceEditor.revealRange(
         sourceEditor.selection,
-        vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+        vscode.TextEditorRevealType.InCenter,
       )
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
@@ -847,10 +1121,20 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       if (editor) {
         decorateEditor(editor)
+        scheduleSourceReveal(editor)
+      }
+      if (editor?.document.uri.scheme !== scheme) {
+        clearSourceLineHighlight()
       }
       updateStatus()
     }),
-    vscode.window.onDidChangeTextEditorSelection(updateStatus),
+    vscode.window.onDidChangeTextEditorSelection((event) => {
+      if (skipProjectAnnotations(event)) {
+        return
+      }
+      updateStatus()
+      scheduleSourceReveal(event.textEditor)
+    }),
     vscode.window.tabGroups.onDidChangeTabs((event) => {
       for (const tab of event.closed) {
         if (!(tab.input instanceof vscode.TabInputText)) {
