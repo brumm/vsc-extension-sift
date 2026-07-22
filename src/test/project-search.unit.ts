@@ -35,21 +35,40 @@ test('compiles path constraints separately from literal and regex content', () =
 			query: 'src/ *.ts !test/ usestate',
 			mode: 'plain',
 			smartCase: true,
+			gitConstraints: [],
 		},
 	);
 
 	assert.deepEqual(
 		compileFffQuery({
-			text: 'src/ *.ts ^use(State|Effect)$',
+			text: 'git:modified src/ *.ts ^use(State|Effect)$',
 			matchCase: false,
 			wholeWord: true,
 			useRegex: true,
 			contextLines: 0,
 		}),
 		{
-			query: 'src/ *.ts (?i:\\b(?:^use(State|Effect)$)\\b)',
+			query:
+				'src/ *.ts (?i:\\b(?:^use(State|Effect)$)\\b)',
 			mode: 'regex',
 			smartCase: false,
+			gitConstraints: ['git:modified'],
+		},
+	);
+
+	assert.deepEqual(
+		compileFffQuery({
+			text: '!git:untracked UseState',
+			matchCase: true,
+			wholeWord: true,
+			useRegex: false,
+			contextLines: 0,
+		}),
+		{
+			query: '(?:\\b(?:UseState)\\b)',
+			mode: 'regex',
+			smartCase: false,
+			gitConstraints: ['!git:untracked'],
 		},
 	);
 });
@@ -67,6 +86,7 @@ test('uses an explicit leading path-constraint grammar', () => {
 			query: '(?i:https:\\x2f\\x2fexample\\.com\\x20usestate\\x20\\*\\.ts)',
 			mode: 'regex',
 			smartCase: false,
+			gitConstraints: [],
 		},
 	);
 
@@ -82,6 +102,7 @@ test('uses an explicit leading path-constraint grammar', () => {
 			query: '(?:\\b(?:\\*\\.ts\\x20UseState)\\b)',
 			mode: 'regex',
 			smartCase: false,
+			gitConstraints: [],
 		},
 	);
 });

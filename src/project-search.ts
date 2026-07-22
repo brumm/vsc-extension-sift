@@ -31,6 +31,10 @@ export class FffProjectSearch {
 	}): Promise<ProjectSearchPage> {
 		const finder = await this.getFinder(input.rootUri, input.rootPath);
 		const grep = compileFffQuery(input.filter);
+		const gitFiles = this.filesMatchingGitConstraints(
+			finder,
+			grep.gitConstraints,
+		);
 		const result = finder.grep(grep.query, {
 			mode: grep.mode,
 			smartCase: grep.smartCase,
@@ -45,11 +49,47 @@ export class FffProjectSearch {
 		}
 		return {
 			matches: projectSearchMatchesFromGrep(
-				result.value.items,
+				gitFiles
+					? result.value.items.filter(item =>
+						gitFiles.has(item.relativePath),
+					)
+					: result.value.items,
 				input.resolveUri,
 			),
 			hasMore: Boolean(result.value.nextCursor),
 		};
+	}
+
+	private filesMatchingGitConstraints(
+		finder: FileFinder,
+		constraints: readonly string[],
+	): Set<string> | undefined {
+		if (constraints.length === 0) {
+			return undefined;
+		}
+		const refreshed = finder.refreshGitStatus();
+		if (!refreshed.ok) {
+			throw new Error(refreshed.error);
+		}
+
+		const files = new Set<string>();
+		const pageSize = 1_000;
+		for (let pageIndex = 0; ; pageIndex += 1) {
+			const result = finder.fileSearch(constraints.join(' '), {
+				pageIndex,
+				pageSize,
+			});
+			if (!result.ok) {
+				throw new Error(result.error);
+			}
+			for (const item of result.value.items) {
+				files.add(item.relativePath);
+			}
+			if ((pageIndex + 1) * pageSize >= result.value.totalMatched) {
+				break;
+			}
+		}
+		return files;
 	}
 
 	dispose(): void {
@@ -93,7 +133,10 @@ export class FffProjectSearch {
 			finder.destroy();
 			throw new Error(indexed.error);
 		}
-		const watched = finder.watch(() => this.onDidChange(rootUri));
+		const watched = finder.watch(() => {
+			finder.refreshGitStatus();
+			this.onDidChange(rootUri);
+		});
 		this.finders.set(rootUri, {
 			finder,
 			unsubscribe: watched.ok ? watched.value : undefined,
@@ -192,9 +235,13 @@ export function compileFffQuery(filter: FilterQuery): {
 	query: string;
 	mode: 'plain' | 'regex';
 	smartCase: boolean;
+	gitConstraints: string[];
 } {
 	const split = splitFffQuery(filter.text);
-	const constraints = split.constraints;
+	const gitConstraints = split.constraints.filter(isGitConstraint);
+	const constraints = split.constraints.filter(
+		constraint => !isGitConstraint(constraint),
+	);
 	const content = filter.useRegex
 		? split.content
 		: split.content
@@ -217,12 +264,14 @@ export function compileFffQuery(filter: FilterQuery): {
 				),
 				mode: 'regex',
 				smartCase: false,
+				gitConstraints,
 			};
 		}
 		return {
 			query: joinFffQuery(constraints, compiledContent),
 			mode: 'plain',
 			smartCase: !filter.matchCase,
+			gitConstraints,
 		};
 	}
 
@@ -239,6 +288,7 @@ export function compileFffQuery(filter: FilterQuery): {
 		query: joinFffQuery(constraints, encodePatternForFff(pattern)),
 		mode: 'regex',
 		smartCase: false,
+		gitConstraints,
 	};
 }
 
@@ -248,7 +298,7 @@ function splitFffQuery(text: string): {
 } {
 	const tokens = text.trim().split(/\s+/);
 	const constraints: string[] = [];
-	while (tokens[0] && isPathConstraint(tokens[0])) {
+	while (tokens[0] && isFffConstraint(tokens[0])) {
 		constraints.push(tokens.shift()!);
 	}
 	return {
@@ -257,13 +307,16 @@ function splitFffQuery(text: string): {
 	};
 }
 
-function isPathConstraint(token: string): boolean {
+function isFffConstraint(token: string): boolean {
 	if (token.startsWith('\\')) {
 		return false;
 	}
 	const candidate = token.startsWith('!') ? token.slice(1) : token;
 	if (!candidate || candidate.includes('://')) {
 		return false;
+	}
+	if (isGitConstraint(token)) {
+		return true;
 	}
 	if (
 		(candidate.startsWith('/') || candidate.endsWith('/')) &&
@@ -277,6 +330,13 @@ function isPathConstraint(token: string): boolean {
 	return candidate.includes('/') && /[?*[{]/u.test(candidate);
 }
 
+function isGitConstraint(token: string): boolean {
+	const candidate = token.startsWith('!') ? token.slice(1) : token;
+	return /^git:(modified|staged|deleted|renamed|untracked|ignored)$/iu.test(
+		candidate,
+	);
+}
+
 function needsFffParserProtection(content: string): boolean {
 	return content.split(/\s+/).some(token => {
 		if (!token || token.startsWith('\\')) {
@@ -286,6 +346,7 @@ function needsFffParserProtection(content: string): boolean {
 			token.startsWith('!') ||
 			token.startsWith('/') ||
 			token.startsWith('*.') ||
+			token.startsWith('git:') ||
 			token.startsWith('type:') ||
 			token.endsWith('/') ||
 			(token.includes('/') && /[?*[{]/u.test(token))
@@ -305,7 +366,7 @@ function hasBraceExpansion(token: string): boolean {
 }
 
 function unescapeConstraintToken(token: string): string {
-	return token.startsWith('\\') && isPathConstraint(token.slice(1))
+	return token.startsWith('\\') && isFffConstraint(token.slice(1))
 		? token.slice(1)
 		: token;
 }

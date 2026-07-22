@@ -595,7 +595,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         : 'Sift Editor'
     input.prompt =
       session.target.kind === 'project'
-        ? 'Case-insensitive unless Match Case is enabled; fff path constraints are supported'
+        ? 'Case-insensitive unless Match Case is enabled; fff path and Git constraints are supported'
         : 'Literal, case-insensitive substring'
     input.value = session.filter.text
     input.ignoreFocusOut = true
