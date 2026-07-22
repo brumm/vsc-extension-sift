@@ -250,7 +250,7 @@
       if (event.key === 'Escape') {
         event.preventDefault()
         vscode.postMessage({ type: 'closeEditor' })
-      } else if (event.metaKey && event.key === 'ArrowDown') {
+      } else if (event.key === 'ArrowDown') {
         event.preventDefault()
         vscode.postMessage({ type: 'focusEditor' })
       } else if (event.altKey && event.metaKey) {
