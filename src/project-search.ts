@@ -361,10 +361,13 @@ export function filesExcludeConstraints(
 		if (!normalized) {
 			return [];
 		}
+		const explicitlyRooted = normalized.startsWith('./');
 		while (normalized.startsWith('./')) {
 			normalized = normalized.slice(2);
 		}
+		let excludesDescendants = false;
 		while (normalized.endsWith('/**')) {
+			excludesDescendants = true;
 			normalized = normalized.slice(0, -3).replace(/\/+$/u, '');
 		}
 		if (!normalized) {
@@ -372,7 +375,14 @@ export function filesExcludeConstraints(
 		}
 		if (normalized.startsWith('**/')) {
 			normalized = normalized.slice(3);
-		} else if (!normalized.startsWith('/')) {
+		} else if (
+			!normalized.startsWith('/')
+			&& (
+				explicitlyRooted
+				|| excludesDescendants
+				|| normalized.includes('/')
+			)
+		) {
 			normalized = `/${normalized}`;
 		}
 		return [`!${encodePatternWhitespace(normalized)}`];

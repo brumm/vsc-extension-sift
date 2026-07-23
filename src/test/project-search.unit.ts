@@ -154,6 +154,7 @@ test('compiles path constraints separately from literal and regex content', () =
 test('prepends normalized files.exclude constraints opaquely', () => {
 	const constraints = filesExcludeConstraints([
 		'**/.agents',
+		'skills-lock.json',
 		'build/**',
 		'./root-only.txt',
 		'folder with spaces/**',
@@ -161,6 +162,7 @@ test('prepends normalized files.exclude constraints opaquely', () => {
 	]);
 	assert.deepEqual(constraints, [
 		'!.agents',
+		'!skills-lock.json',
 		'!/build',
 		'!/root-only.txt',
 		'!/folder\\x20with\\x20spaces',
@@ -173,7 +175,7 @@ test('prepends normalized files.exclude constraints opaquely', () => {
 			useRegex: false,
 			contextLines: 0,
 		}, constraints).query,
-		'!.agents !/build !/root-only.txt !/folder\\x20with\\x20spaces usestate',
+		'!.agents !skills-lock.json !/build !/root-only.txt !/folder\\x20with\\x20spaces usestate',
 	);
 });
 
@@ -186,6 +188,7 @@ test('FFF grep applies normalized files.exclude constraints', async t => {
 	await writeFile(join(directory, '.agents/root.txt'), 'needle');
 	await writeFile(join(directory, 'src/.agents/nested.txt'), 'needle');
 	await writeFile(join(directory, 'build/output.txt'), 'needle');
+	await writeFile(join(directory, 'skills-lock.json'), 'needle');
 	await writeFile(join(directory, 'visible.txt'), 'needle');
 
 	const { FileFinder } = await import('@ff-labs/fff-node');
@@ -206,6 +209,7 @@ test('FFF grep applies normalized files.exclude constraints', async t => {
 		contextLines: 0,
 	}, filesExcludeConstraints([
 		'**/.agents',
+		'skills-lock.json',
 		'build/**',
 	]));
 	const result = finder.grep(compiled.query, {
