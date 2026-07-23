@@ -30,11 +30,13 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 		}
 
 		const root = vscode.Uri.parse(target.rootUri);
+		const excludeGlobs = enabledFilesExcludeGlobs(root);
 		if (target.kind === 'paths') {
 			const matches = await this.projectSearch.searchPaths({
 				rootUri: target.rootUri,
 				rootPath: root.fsPath,
 				query: filter.text,
+				excludeGlobs,
 				resolveUri: relativePath =>
 					vscode.Uri.joinPath(root, relativePath).toString(),
 			});
@@ -56,6 +58,7 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 			rootUri: target.rootUri,
 			rootPath: root.fsPath,
 			filter,
+			excludeGlobs,
 			resolveUri: relativePath =>
 				vscode.Uri.joinPath(root, relativePath).toString(),
 		});
@@ -66,4 +69,13 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 				: undefined,
 		};
 	}
+}
+
+function enabledFilesExcludeGlobs(root: vscode.Uri): string[] {
+	const excludes = vscode.workspace
+		.getConfiguration('files', root)
+		.get<Record<string, boolean | { when?: string }>>('exclude', {});
+	return Object.entries(excludes)
+		.filter((entry): entry is [string, true] => entry[1] === true)
+		.map(([pattern]) => pattern);
 }

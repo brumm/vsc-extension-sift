@@ -32,10 +32,14 @@ export class FffProjectSearch {
 		rootUri: string;
 		rootPath: string;
 		filter: FilterQuery;
+		excludeGlobs?: readonly string[];
 		resolveUri(relativePath: string): string;
 	}): Promise<ProjectSearchPage> {
 		const finder = await this.getFinder(input.rootUri, input.rootPath);
-		const grep = compileFffQuery(input.filter);
+		const grep = compileFffQuery(
+			input.filter,
+			filesExcludeConstraints(input.excludeGlobs ?? []),
+		);
 		const gitFiles = this.filesMatchingGitConstraints(
 			finder,
 			grep.gitConstraints,
@@ -69,10 +73,18 @@ export class FffProjectSearch {
 		rootUri: string;
 		rootPath: string;
 		query: string;
+		excludeGlobs?: readonly string[];
 		resolveUri(relativePath: string): string;
 	}): Promise<PathSearchMatch[]> {
 		const finder = await this.getFinder(input.rootUri, input.rootPath);
-		return allPathSearchMatches(finder, input.query, input.resolveUri);
+		return allPathSearchMatches(
+			finder,
+			joinFffQuery(
+				filesExcludeConstraints(input.excludeGlobs ?? []),
+				input.query,
+			),
+			input.resolveUri,
+		);
 	}
 
 	private filesMatchingGitConstraints(
@@ -271,7 +283,10 @@ export function projectSearchMatchesFromGrep(
 	);
 }
 
-export function compileFffQuery(filter: FilterQuery): {
+export function compileFffQuery(
+	filter: FilterQuery,
+	implicitConstraints: readonly string[] = [],
+): {
 	query: string;
 	mode: 'plain' | 'regex';
 	smartCase: boolean;
@@ -299,7 +314,7 @@ export function compileFffQuery(filter: FilterQuery): {
 				: `(?i:${escaped})`;
 			return {
 				query: joinFffQuery(
-					constraints,
+					[...implicitConstraints, ...constraints],
 					encodePatternForFff(pattern),
 				),
 				mode: 'regex',
@@ -308,7 +323,10 @@ export function compileFffQuery(filter: FilterQuery): {
 			};
 		}
 		return {
-			query: joinFffQuery(constraints, compiledContent),
+			query: joinFffQuery(
+				[...implicitConstraints, ...constraints],
+				compiledContent,
+			),
 			mode: 'plain',
 			smartCase: !filter.matchCase,
 			gitConstraints,
@@ -325,11 +343,40 @@ export function compileFffQuery(filter: FilterQuery): {
 		pattern = `(?:${pattern})`;
 	}
 	return {
-		query: joinFffQuery(constraints, encodePatternForFff(pattern)),
+		query: joinFffQuery(
+			[...implicitConstraints, ...constraints],
+			encodePatternForFff(pattern),
+		),
 		mode: 'regex',
 		smartCase: false,
 		gitConstraints,
 	};
+}
+
+export function filesExcludeConstraints(
+	patterns: readonly string[],
+): string[] {
+	return patterns.flatMap(pattern => {
+		let normalized = pattern.trim().replaceAll('\\', '/');
+		if (!normalized) {
+			return [];
+		}
+		while (normalized.startsWith('./')) {
+			normalized = normalized.slice(2);
+		}
+		while (normalized.endsWith('/**')) {
+			normalized = normalized.slice(0, -3).replace(/\/+$/u, '');
+		}
+		if (!normalized) {
+			return [];
+		}
+		if (normalized.startsWith('**/')) {
+			normalized = normalized.slice(3);
+		} else if (!normalized.startsWith('/')) {
+			normalized = `/${normalized}`;
+		}
+		return [`!${encodePatternWhitespace(normalized)}`];
+	});
 }
 
 function splitFffQuery(text: string): {

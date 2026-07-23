@@ -1171,6 +1171,16 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         await vscode.commands.executeCommand('cursorUp')
       },
     ),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('files.exclude')) {
+        return
+      }
+      for (const session of sessions.values()) {
+        if (session.target.kind !== 'file') {
+          scheduleRefresh(session)
+        }
+      }
+    }),
     vscode.commands.registerCommand('sift.save', async () => {
       const editor = vscode.window.activeTextEditor
       if (!editor || editor.document.uri.scheme !== scheme) {

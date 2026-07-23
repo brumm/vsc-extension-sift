@@ -7,6 +7,7 @@ import {
 	allPathSearchMatches,
 	byteRangesToFilterMatches,
 	compileFffQuery,
+	filesExcludeConstraints,
 	projectSearchMatchesFromGrep,
 } from '../project-search';
 
@@ -148,6 +149,76 @@ test('compiles path constraints separately from literal and regex content', () =
 			gitConstraints: ['!git:untracked'],
 		},
 	);
+});
+
+test('prepends normalized files.exclude constraints opaquely', () => {
+	const constraints = filesExcludeConstraints([
+		'**/.agents',
+		'build/**',
+		'./root-only.txt',
+		'folder with spaces/**',
+		'',
+	]);
+	assert.deepEqual(constraints, [
+		'!.agents',
+		'!/build',
+		'!/root-only.txt',
+		'!/folder\\x20with\\x20spaces',
+	]);
+	assert.equal(
+		compileFffQuery({
+			text: 'UseState',
+			matchCase: false,
+			wholeWord: false,
+			useRegex: false,
+			contextLines: 0,
+		}, constraints).query,
+		'!.agents !/build !/root-only.txt !/folder\\x20with\\x20spaces usestate',
+	);
+});
+
+test('FFF grep applies normalized files.exclude constraints', async t => {
+	const directory = await mkdtemp(join(tmpdir(), 'sift-fff-excludes-'));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	await mkdir(join(directory, '.agents'), { recursive: true });
+	await mkdir(join(directory, 'src/.agents'), { recursive: true });
+	await mkdir(join(directory, 'build'), { recursive: true });
+	await writeFile(join(directory, '.agents/root.txt'), 'needle');
+	await writeFile(join(directory, 'src/.agents/nested.txt'), 'needle');
+	await writeFile(join(directory, 'build/output.txt'), 'needle');
+	await writeFile(join(directory, 'visible.txt'), 'needle');
+
+	const { FileFinder } = await import('@ff-labs/fff-node');
+	const created = FileFinder.create({ basePath: directory });
+	assert.equal(created.ok, true);
+	if (!created.ok) {
+		return;
+	}
+	const finder = created.value;
+	t.after(() => finder.destroy());
+	assert.equal((await finder.waitForIndexReady(10_000)).ok, true);
+
+	const compiled = compileFffQuery({
+		text: 'needle',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	}, filesExcludeConstraints([
+		'**/.agents',
+		'build/**',
+	]));
+	const result = finder.grep(compiled.query, {
+		mode: compiled.mode,
+		smartCase: compiled.smartCase,
+	});
+	assert.equal(result.ok, true);
+	if (result.ok) {
+		assert.deepEqual(
+			result.value.items.map(item => item.relativePath),
+			['visible.txt'],
+		);
+	}
 });
 
 test('uses an explicit leading path-constraint grammar', () => {
