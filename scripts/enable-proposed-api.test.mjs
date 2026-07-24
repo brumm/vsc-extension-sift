@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import {
+  argvPathSelection,
   defaultArgvPath,
   enableProposedApi,
   extensionId,
@@ -56,7 +57,15 @@ test('appends to an existing proposed API list without discarding comments', () 
 test('resolves the current Stable argv.json location by platform', () => {
   assert.equal(
     defaultArgvPath('darwin', {}, '/Users/test'),
-    '/Users/test/Library/Application Support/Code/argv.json',
+    '/Users/test/.vscode/argv.json',
+  )
+  assert.equal(
+    defaultArgvPath(
+      'darwin',
+      { VSCODE_PORTABLE: '/Volumes/PortableCode' },
+      '/Users/test',
+    ),
+    '/Volumes/PortableCode/argv.json',
   )
   assert.equal(
     defaultArgvPath('linux', {}, '/home/test'),
@@ -84,11 +93,83 @@ test('resolves the current Stable argv.json location by platform', () => {
   )
 })
 
+test('macOS selection prefers the location read by VS Code', () => {
+  assert.deepEqual(
+    argvPathSelection('darwin', {}, '/Users/test'),
+    {
+      path: '/Users/test/.vscode/argv.json',
+      ignoredCandidates: [
+        {
+          path: '/Users/test/Library/Application Support/Code/argv.json',
+          reason: 'current VS Code does not read runtime arguments here',
+        },
+      ],
+    },
+  )
+  assert.deepEqual(
+    argvPathSelection(
+      'darwin',
+      { VSCODE_PORTABLE: '/Volumes/PortableCode' },
+      '/Users/test',
+    ),
+    {
+      path: '/Volumes/PortableCode/argv.json',
+      ignoredCandidates: [
+        {
+          path: '/Users/test/.vscode/argv.json',
+          reason: 'VSCODE_PORTABLE is set',
+        },
+        {
+          path: '/Users/test/Library/Application Support/Code/argv.json',
+          reason: 'current VS Code does not read runtime arguments here',
+        },
+      ],
+    },
+  )
+})
+
 test('rejects a null root with a useful error', () => {
   assert.throws(
     () => enableProposedApi('null\n'),
     /root value is not an object/,
   )
+})
+
+test('CLI uses ~/.vscode when the legacy macOS file also exists', {
+  skip: process.platform !== 'darwin',
+}, async () => {
+  const homeDirectory = await mkdtemp(join(tmpdir(), 'sift-argv-home-'))
+  const standardPath = join(homeDirectory, '.vscode', 'argv.json')
+  const legacyPath = join(
+    homeDirectory,
+    'Library',
+    'Application Support',
+    'Code',
+    'argv.json',
+  )
+  try {
+    await mkdir(dirname(standardPath), { recursive: true })
+    await mkdir(dirname(legacyPath), { recursive: true })
+    await writeFile(standardPath, '{}\n')
+    await writeFile(legacyPath, '{}\n')
+
+    const script = fileURLToPath(new URL('./enable-proposed-api.mjs', import.meta.url))
+    const result = spawnSync(process.execPath, [script], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: homeDirectory,
+        VSCODE_PORTABLE: '',
+      },
+    })
+
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(await readFile(standardPath, 'utf8'), /local\.sift/)
+    assert.doesNotMatch(await readFile(legacyPath, 'utf8'), /local\.sift/)
+    assert.match(result.stderr, /Ignoring .*Application Support.*using .*\.vscode/)
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true })
+  }
 })
 
 test('CLI invocation and argv.json both work through symlinks', {

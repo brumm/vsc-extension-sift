@@ -21,6 +21,54 @@ import { fileURLToPath } from 'node:url'
 
 export const extensionId = 'local.sift'
 
+export function argvPathSelection(
+  platform = process.platform,
+  environment = process.env,
+  homeDirectory = homedir(),
+) {
+  if (platform !== 'darwin') {
+    return {
+      path: defaultArgvPath(platform, environment, homeDirectory),
+      ignoredCandidates: [],
+    }
+  }
+
+  const standardPath = posix.join(homeDirectory, '.vscode', 'argv.json')
+  const legacyPath = posix.join(
+    homeDirectory,
+    'Library',
+    'Application Support',
+    'Code',
+    'argv.json',
+  )
+  const portableRoot = environment.VSCODE_PORTABLE
+  if (portableRoot) {
+    return {
+      path: posix.join(portableRoot, 'argv.json'),
+      ignoredCandidates: [
+        {
+          path: standardPath,
+          reason: 'VSCODE_PORTABLE is set',
+        },
+        {
+          path: legacyPath,
+          reason: 'current VS Code does not read runtime arguments here',
+        },
+      ],
+    }
+  }
+
+  return {
+    path: standardPath,
+    ignoredCandidates: [
+      {
+        path: legacyPath,
+        reason: 'current VS Code does not read runtime arguments here',
+      },
+    ],
+  }
+}
+
 export function defaultArgvPath(
   platform = process.platform,
   environment = process.env,
@@ -28,13 +76,9 @@ export function defaultArgvPath(
 ) {
   switch (platform) {
     case 'darwin':
-      return posix.join(
-        homeDirectory,
-        'Library',
-        'Application Support',
-        'Code',
-        'argv.json',
-      )
+      return environment.VSCODE_PORTABLE
+        ? posix.join(environment.VSCODE_PORTABLE, 'argv.json')
+        : posix.join(homeDirectory, '.vscode', 'argv.json')
     case 'win32': {
       const appData = environment.APPDATA
       if (!appData || !win32.isAbsolute(appData)) {
@@ -107,10 +151,30 @@ export function enableProposedApi(contents) {
   }
 }
 
-function requestedArgvPath(arguments_) {
+async function pathExists(path) {
+  try {
+    await lstat(path)
+    return true
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
+}
+
+async function requestedArgvPath(arguments_) {
   const argvIndex = arguments_.indexOf('--argv')
   if (argvIndex === -1) {
-    return defaultArgvPath()
+    const selection = argvPathSelection()
+    for (const candidate of selection.ignoredCandidates) {
+      if (await pathExists(candidate.path)) {
+        console.warn(
+          `Ignoring ${candidate.path}: ${candidate.reason}; using ${selection.path}.`,
+        )
+      }
+    }
+    return selection.path
   }
   const value = arguments_[argvIndex + 1]
   if (!value) {
@@ -120,7 +184,7 @@ function requestedArgvPath(arguments_) {
 }
 
 async function main() {
-  const argvPath = requestedArgvPath(process.argv.slice(2))
+  const argvPath = await requestedArgvPath(process.argv.slice(2))
   let contents = '{}\n'
   try {
     contents = await readFile(argvPath, 'utf8')
