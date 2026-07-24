@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { realpathSync } from 'node:fs'
+import { applyEdits, modify, parse, printParseErrorCode } from 'jsonc-parser'
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import {
   chmod,
   lstat,
@@ -17,12 +18,6 @@ import {
 import { homedir } from 'node:os'
 import { dirname, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  applyEdits,
-  modify,
-  parse,
-  printParseErrorCode,
-} from 'jsonc-parser'
 
 export const extensionId = 'local.sift'
 
@@ -33,24 +28,29 @@ export function defaultArgvPath(
 ) {
   switch (platform) {
     case 'darwin':
-      return posix.join(homeDirectory, 'Library', 'Application Support', 'Code', 'argv.json')
+      return posix.join(
+        homeDirectory,
+        'Library',
+        'Application Support',
+        'Code',
+        'argv.json',
+      )
     case 'win32': {
       const appData = environment.APPDATA
       if (!appData || !win32.isAbsolute(appData)) {
-        throw new Error('APPDATA is not an absolute path; pass the argv.json path with --argv.')
+        throw new Error(
+          'APPDATA is not an absolute path; pass the argv.json path with --argv.',
+        )
       }
       return win32.join(appData, 'Code', 'argv.json')
     }
     default: {
       const configuredPath = environment.XDG_CONFIG_HOME
-      const configHome = configuredPath && posix.isAbsolute(configuredPath)
-        ? configuredPath
-        : posix.join(homeDirectory, '.config')
-      return posix.join(
-        configHome,
-        'Code',
-        'argv.json',
-      )
+      const configHome =
+        configuredPath && posix.isAbsolute(configuredPath)
+          ? configuredPath
+          : posix.join(homeDirectory, '.config')
+      return posix.join(configHome, 'Code', 'argv.json')
     }
   }
 }
@@ -63,17 +63,24 @@ export function enableProposedApi(contents) {
   })
   if (errors.length > 0) {
     const description = errors
-      .map(error => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
+      .map(
+        (error) =>
+          `${printParseErrorCode(error.error)} at offset ${error.offset}`,
+      )
       .join(', ')
     throw new Error(`Cannot parse argv.json: ${description}`)
   }
   if (!current || Array.isArray(current) || typeof current !== 'object') {
-    throw new Error('Cannot update argv.json because its root value is not an object.')
+    throw new Error(
+      'Cannot update argv.json because its root value is not an object.',
+    )
   }
 
   const existing = current['enable-proposed-api']
   if (existing !== undefined && !Array.isArray(existing)) {
-    throw new Error('Cannot update argv.json because "enable-proposed-api" is not an array.')
+    throw new Error(
+      'Cannot update argv.json because "enable-proposed-api" is not an array.',
+    )
   }
   if (existing?.includes(extensionId)) {
     return { changed: false, contents }
@@ -82,7 +89,9 @@ export function enableProposedApi(contents) {
   const eol = contents.includes('\r\n') ? '\r\n' : '\n'
   const edits = modify(
     contents,
-    existing ? ['enable-proposed-api', existing.length] : ['enable-proposed-api'],
+    existing
+      ? ['enable-proposed-api', existing.length]
+      : ['enable-proposed-api'],
     existing ? extensionId : [extensionId],
     {
       formattingOptions: {
@@ -172,12 +181,17 @@ async function main() {
     }
     console.log(`Enabled the proposed API for ${extensionId} in ${argvPath}`)
   } else {
-    console.log(`The proposed API is already enabled for ${extensionId} in ${argvPath}`)
+    console.log(
+      `The proposed API is already enabled for ${extensionId} in ${argvPath}`,
+    )
   }
   console.log('Restart VS Code for the change to take effect.')
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : undefined
-if (invokedPath && realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url))) {
+if (
+  invokedPath &&
+  realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url))
+) {
   await main()
 }
