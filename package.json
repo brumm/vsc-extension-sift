@@ -82,11 +82,6 @@
       },
       {
         "command": "sift.openSource",
-        "key": "cmd+enter",
-        "when": "resourceScheme == sift-editor && editorTextFocus"
-      },
-      {
-        "command": "sift.openSource",
         "key": "enter",
         "when": "resourceScheme == sift-editor && editorTextFocus"
       },

@@ -257,7 +257,10 @@
     })
 
     input.addEventListener('keydown', event => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        vscode.postMessage({ type: 'openSource' })
+      } else if (event.key === 'Escape') {
         event.preventDefault()
         vscode.postMessage({ type: 'closeEditor' })
       } else if (event.key === 'ArrowDown') {
