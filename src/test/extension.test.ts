@@ -16,6 +16,16 @@ suite('Extension Test Suite', () => {
 		assert.equal(extension.isActive, true);
 	});
 
+	test('extension activates when VS Code restores a Sift editor', () => {
+		const extension = vscode.extensions.getExtension('local.sift');
+		assert.ok(extension);
+		assert.ok(
+			(extension.packageJSON.activationEvents as string[]).includes(
+				'onFileSystem:sift-editor',
+			),
+		);
+	});
+
 	test('Escape routes through the SIFT close command', () => {
 		const extension = vscode.extensions.getExtension('local.sift');
 		assert.ok(extension);

@@ -14,6 +14,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onFileSystem:sift-editor",
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
