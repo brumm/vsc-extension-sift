@@ -20,6 +20,7 @@ interface FilterInsetEntry {
 
 export interface ProjectionFilterInsetCallbacks {
   onFilterChanged(session: ProjectionSession, filter: FilterQuery): void
+  onClose(session: ProjectionSession): void
   onOpenSource(): void
   onSearchProject(session: ProjectionSession, filter: FilterQuery): void
   onUnavailable(message: string): void
@@ -150,7 +151,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         this.callbacks.onOpenSource()
         return
       case 'closeEditor':
-        void vscode.commands.executeCommand('workbench.action.closeActiveEditor')
+        this.callbacks.onClose(session)
         return
       case 'searchProject': {
         const filter =

@@ -85,7 +85,12 @@
         "when": "resourceScheme == sift-editor && editorTextFocus"
       },
       {
-        "command": "workbench.action.closeActiveEditor",
+        "command": "sift.openSource",
+        "key": "enter",
+        "when": "resourceScheme == sift-editor && editorTextFocus"
+      },
+      {
+        "command": "sift.close",
         "key": "escape",
         "when": "resourceScheme == sift-editor && editorTextFocus && !editorHasMultipleSelections"
       },

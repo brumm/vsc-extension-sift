@@ -16,6 +16,19 @@ suite('Extension Test Suite', () => {
 		assert.equal(extension.isActive, true);
 	});
 
+	test('Escape routes through the SIFT close command', () => {
+		const extension = vscode.extensions.getExtension('local.sift');
+		assert.ok(extension);
+		const keybindings = extension.packageJSON.contributes?.keybindings as
+			| { command?: string; key?: string; when?: string }[]
+			| undefined;
+		assert.ok(keybindings?.some(keybinding =>
+			keybinding.command === 'sift.close' &&
+			keybinding.key === 'escape' &&
+			keybinding.when?.includes('resourceScheme == sift-editor'),
+		));
+	});
+
 	test('path save moves a file and removes its empty source folder', async () => {
 		const rootPath = await mkdtemp(join(tmpdir(), 'sift-path-save-'));
 		try {
@@ -78,6 +91,53 @@ suite('Extension Test Suite', () => {
 			assert.equal(outcome.ok, true);
 			await access(join(rootPath, 'example.ts'));
 		} finally {
+			await rm(rootPath, { recursive: true, force: true });
+		}
+	});
+
+	test('sift.close removes a source preview opened from a path result', async function () {
+		this.timeout(10_000);
+		const rootPath = await mkdtemp(join(tmpdir(), 'sift-close-preview-'));
+		const rootUri = vscode.Uri.file(rootPath);
+		await replaceWorkspaceFolders({ uri: rootUri });
+		const sourceUri = vscode.Uri.joinPath(rootUri, 'list.tsx');
+		const queryUri = vscode.Uri.joinPath(rootUri, 'query.txt');
+		try {
+			await vscode.workspace.fs.writeFile(
+				sourceUri,
+				new TextEncoder().encode('export const list = [];'),
+			);
+			await vscode.workspace.fs.writeFile(
+				queryUri,
+				new TextEncoder().encode('list.tsx'),
+			);
+			const queryDocument = await vscode.workspace.openTextDocument(queryUri);
+			const queryEditor = await vscode.window.showTextDocument(queryDocument, {
+				preview: false,
+			});
+			queryEditor.selection = new vscode.Selection(0, 0, 0, 'list.tsx'.length);
+
+			await vscode.commands.executeCommand('sift.siftPaths');
+			const pathEditor = vscode.window.visibleTextEditors.find(
+				(editor) => editor.document.uri.scheme === 'sift-editor',
+			);
+			assert.ok(pathEditor);
+			await vscode.window.showTextDocument(pathEditor.document, pathEditor.viewColumn);
+			pathEditor.selection = new vscode.Selection(0, 0, 0, 0);
+
+			await waitFor(() => findTextTab(sourceUri)?.isPreview === true);
+			await vscode.commands.executeCommand('sift.close');
+			await waitFor(() => findTextTab(sourceUri) === undefined);
+
+			assert.equal(
+				vscode.window.visibleTextEditors.some(
+					(editor) => editor.document.uri.scheme === 'sift-editor',
+				),
+				false,
+			);
+		} finally {
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+			await replaceWorkspaceFolders();
 			await rm(rootPath, { recursive: true, force: true });
 		}
 	});
@@ -280,4 +340,23 @@ async function replaceWorkspaceFolders(
 
 async function waitForSourcePreview(): Promise<void> {
 	await new Promise(resolve => setTimeout(resolve, 100));
+}
+
+function findTextTab(uri: vscode.Uri): vscode.Tab | undefined {
+	return vscode.window.tabGroups.all
+		.flatMap(group => group.tabs)
+		.find(tab =>
+			tab.input instanceof vscode.TabInputText &&
+			tab.input.uri.toString() === uri.toString(),
+		);
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+	const deadline = Date.now() + 2_000;
+	while (!predicate()) {
+		if (Date.now() >= deadline) {
+			assert.fail('Timed out waiting for editor state');
+		}
+		await new Promise(resolve => setTimeout(resolve, 20));
+	}
 }

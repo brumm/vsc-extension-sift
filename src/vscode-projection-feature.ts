@@ -26,7 +26,11 @@ const storedSessionsKey = 'sift.sessions'
 
 interface FilterSessionRuntime {
   virtualUri: vscode.Uri
+  closed?: boolean
   sourceViewColumn?: vscode.ViewColumn
+  sourcePreviewUri?: string
+  sourcePreviewViewColumn?: vscode.ViewColumn
+  preserveSourcePreview?: boolean
   sourceRevealTimer?: NodeJS.Timeout
   sourceRevealGeneration?: number
   resetEditorPosition?: boolean
@@ -174,6 +178,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         preserveEditorState: false,
       })
     },
+    onClose: (session) => {
+      void cancelSession(session)
+    },
     onOpenSource: () => {
       void vscode.commands.executeCommand('sift.openSource')
     },
@@ -200,9 +207,65 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     return runtime
   }
 
+  const closePreviewTab = async (
+    sourceUri: string,
+    viewColumn?: vscode.ViewColumn,
+  ): Promise<void> => {
+    const previewTab = vscode.window.tabGroups.all
+      .filter(
+        (group) =>
+          viewColumn === undefined || group.viewColumn === viewColumn,
+      )
+      .flatMap((group) => group.tabs)
+      .find(
+        (tab) =>
+          tab.isPreview &&
+          tab.input instanceof vscode.TabInputText &&
+          tab.input.uri.toString() === sourceUri,
+      )
+    if (previewTab) {
+      await vscode.window.tabGroups.close(previewTab, true)
+    }
+  }
+
+  const invalidateSourceReveal = (runtime: FilterSessionRuntime): void => {
+    runtime.closed = true
+    runtime.sourceRevealGeneration = (runtime.sourceRevealGeneration ?? 0) + 1
+    if (runtime.sourceRevealTimer) {
+      clearTimeout(runtime.sourceRevealTimer)
+      runtime.sourceRevealTimer = undefined
+    }
+  }
+
+  const cancelSession = async (session: ProjectionSession): Promise<void> => {
+    const runtime = runtimeFor(session)
+    invalidateSourceReveal(runtime)
+    if (runtime.sourcePreviewUri && !runtime.preserveSourcePreview) {
+      await closePreviewTab(
+        runtime.sourcePreviewUri,
+        runtime.sourcePreviewViewColumn,
+      )
+    }
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor')
+  }
+
   const closeSession = (uri: vscode.Uri): void => {
     const id = sessionId(uri)
     const runtime = sessionRuntimes.get(id)
+    if (runtime) {
+      invalidateSourceReveal(runtime)
+      if (runtime.sourcePreviewUri && !runtime.preserveSourcePreview) {
+        const sourcePreviewUri = runtime.sourcePreviewUri
+        const sourcePreviewViewColumn = runtime.sourcePreviewViewColumn
+        setTimeout(
+          () => void closePreviewTab(
+            sourcePreviewUri,
+            sourcePreviewViewColumn,
+          ),
+          0,
+        )
+      }
+    }
     if (runtime?.refreshTimer) {
       clearTimeout(runtime.refreshTimer)
     }
@@ -832,8 +895,13 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       selection,
     })
     if (runtime.sourceRevealGeneration !== generation) {
+      if (runtime.closed && !runtime.preserveSourcePreview) {
+        void closePreviewTab(sourceUri.toString(), sourceEditor.viewColumn)
+      }
       return
     }
+    runtime.sourcePreviewUri = sourceUri.toString()
+    runtime.sourcePreviewViewColumn = sourceEditor.viewColumn
     sourceEditor.revealRange(selection, vscode.TextEditorRevealType.InCenter)
     highlightSourceLine(sourceEditor, line)
   }
@@ -1147,6 +1215,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       'sift.focusQueryInput',
       focusQueryInput,
     ),
+    vscode.commands.registerCommand('sift.close', async () => {
+      const session = activeSession(sessions)
+      if (session) {
+        await cancelSession(session)
+      }
+    }),
     vscode.commands.registerCommand(
       'sift.cursorUpOrFocusQuery',
       async () => {
@@ -1211,6 +1285,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       }
       const primarySourceUri = vscode.Uri.parse(sources[0].uri)
       const runtime = runtimeFor(session)
+      runtime.preserveSourcePreview = true
       const visibleSourceEditor = vscode.window.visibleTextEditors.find(
         (candidate) =>
           candidate.document.uri.toString() === primarySourceUri.toString() &&
