@@ -16,6 +16,7 @@ const beforeFirstDocumentLine = -1
 interface FilterInsetEntry {
   sessionId: string
   inset: vscode.WebviewEditorInset
+  focusInput: boolean
 }
 
 export interface ProjectionFilterInsetCallbacks {
@@ -38,9 +39,13 @@ export class ProjectionFilterInsets implements vscode.Disposable {
   ): boolean {
     const existing = this.entries.get(editor)
     if (existing?.sessionId === session.id) {
+      existing.focusInput ||= focusInput
       this.sync(session)
       if (focusInput) {
-        void existing.inset.webview.postMessage({ type: 'focus' })
+        void existing.inset.webview.postMessage({
+          type: 'focus',
+          selectAll: session.filter.text.length > 0,
+        })
       }
       return true
     }
@@ -57,13 +62,14 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         1.5,
         { enableScripts: true },
       )
-      this.entries.set(editor, { sessionId: session.id, inset })
-      inset.webview.html = filterInsetHtml(session, focusInput)
-
+      const entry = { sessionId: session.id, inset, focusInput }
+      this.entries.set(editor, entry)
       const messageSubscription = inset.webview.onDidReceiveMessage(
         (message: unknown) =>
-          this.receiveMessage(message, editor, session, inset, focusInput),
+          this.receiveMessage(message, editor, session, inset, entry),
       )
+      inset.webview.html = filterInsetHtml(session, focusInput)
+
       const disposeSubscription = inset.onDidDispose(() => {
         if (this.entries.get(editor)?.inset === inset) {
           this.entries.delete(editor)
@@ -107,7 +113,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
     editor: vscode.TextEditor,
     session: ProjectionSession,
     inset: vscode.WebviewEditorInset,
-    focusInput: boolean,
+    entry: FilterInsetEntry,
   ): void {
     if (!message || typeof message !== 'object' || !('type' in message)) {
       return
@@ -133,8 +139,11 @@ export class ProjectionFilterInsets implements vscode.Disposable {
       }
       case 'ready': {
         this.sync(session)
-        if (focusInput) {
-          void inset.webview.postMessage({ type: 'focus' })
+        if (entry.focusInput) {
+          void inset.webview.postMessage({
+            type: 'focus',
+            selectAll: session.filter.text.length > 0,
+          })
         }
         return
       }

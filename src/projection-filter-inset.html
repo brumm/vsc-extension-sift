@@ -209,6 +209,11 @@
       contextLines: initialState.contextLines,
     }
     input.value = initialState.query
+    const focusInput = selectAll => {
+      input.focus()
+      const start = selectAll ? 0 : input.value.length
+      input.setSelectionRange(start, input.value.length)
+    }
     const renderOptions = () => {
       for (const button of optionButtons) {
         const active = options[button.dataset.option]
@@ -285,14 +290,13 @@
         renderOptions()
         renderContext()
       } else if (message.type === 'focus') {
-        input.focus()
-        input.setSelectionRange(input.value.length, input.value.length)
+        focusInput(message.selectAll)
       }
     })
     vscode.postMessage({ type: 'ready' })
 
     if (initialState.focusInput) {
-      input.focus()
+      focusInput(Boolean(input.value))
     }
   </script>
 </body>

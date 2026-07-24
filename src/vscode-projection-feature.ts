@@ -1120,8 +1120,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         })
         runtimeFor(session).sourceViewColumn = sourceEditor.viewColumn
         await refresh(session)
-        const hasInset = await showSession(session, !initialQuery)
-        if (!initialQuery && !hasInset) {
+        const hasInset = await showSession(session, true)
+        if (!hasInset) {
           showFilterInput(session)
         }
       },
@@ -1164,7 +1164,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             contextLines: 0,
           },
           sourceDocument?.languageId ?? 'plaintext',
-          !initialQuery,
+          true,
           sourceDocument
             ? sourceEditor?.viewColumn
             : sourceSession
@@ -1202,7 +1202,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         await openPathSearch(
           workspaceFolder,
           initialQuery,
-          !initialQuery,
+          true,
           sourceDocument
             ? sourceEditor?.viewColumn
             : sourceSession
