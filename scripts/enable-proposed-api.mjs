@@ -2,7 +2,7 @@
 
 import { applyEdits, modify, parse, printParseErrorCode } from 'jsonc-parser'
 import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync } from 'node:fs'
 import {
   chmod,
   lstat,
@@ -14,12 +14,58 @@ import {
   rename,
   rm,
   stat,
+  symlink,
 } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, posix, resolve, win32 } from 'node:path'
+import { dirname, join, posix, resolve, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const extensionId = 'local.sift'
+const repositoryRoot = dirname(
+  fileURLToPath(new URL('../package.json', import.meta.url)),
+)
+const manifest = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+)
+export const extensionId = `${manifest.publisher}.${manifest.name}`
+const previousExtensionIds = ['local.sift']
+
+export async function installExtensionSymlink(
+  homeDirectory = homedir(),
+  platform = process.platform,
+) {
+  const extensionDirectory = join(homeDirectory, '.vscode', 'extensions')
+  const linkPath = join(
+    extensionDirectory,
+    `${extensionId}-${manifest.version}`,
+  )
+
+  await mkdir(extensionDirectory, { recursive: true })
+  try {
+    const existing = await lstat(linkPath)
+    if (!existing.isSymbolicLink()) {
+      throw new Error(
+        `Cannot install the local extension because ${linkPath} exists and is not a symbolic link.`,
+      )
+    }
+    try {
+      if ((await realpath(linkPath)) === (await realpath(repositoryRoot))) {
+        return { changed: false, linkPath }
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        throw error
+      }
+    }
+    await rm(linkPath)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error
+    }
+  }
+
+  await symlink(repositoryRoot, linkPath, platform === 'win32' ? 'junction' : 'dir')
+  return { changed: true, linkPath }
+}
 
 export function argvPathSelection(
   platform = process.platform,
@@ -126,28 +172,46 @@ export function enableProposedApi(contents) {
       'Cannot update argv.json because "enable-proposed-api" is not an array.',
     )
   }
-  if (existing?.includes(extensionId)) {
-    return { changed: false, contents }
+  const eol = contents.includes('\r\n') ? '\r\n' : '\n'
+  const formattingOptions = {
+    insertSpaces: !contents.includes('\t'),
+    tabSize: 2,
+    eol,
+  }
+  let updatedContents = contents
+  let changed = false
+
+  if (!existing?.includes(extensionId)) {
+    const edits = modify(
+      updatedContents,
+      existing
+        ? ['enable-proposed-api', existing.length]
+        : ['enable-proposed-api'],
+      existing ? extensionId : [extensionId],
+      { formattingOptions },
+    )
+    updatedContents = applyEdits(updatedContents, edits)
+    changed = true
   }
 
-  const eol = contents.includes('\r\n') ? '\r\n' : '\n'
-  const edits = modify(
-    contents,
-    existing
-      ? ['enable-proposed-api', existing.length]
-      : ['enable-proposed-api'],
-    existing ? extensionId : [extensionId],
-    {
-      formattingOptions: {
-        insertSpaces: !contents.includes('\t'),
-        tabSize: 2,
-        eol,
-      },
-    },
-  )
+  for (const previousExtensionId of previousExtensionIds) {
+    const updated = parse(updatedContents)['enable-proposed-api']
+    const index = updated.indexOf(previousExtensionId)
+    if (index !== -1) {
+      const edits = modify(
+        updatedContents,
+        ['enable-proposed-api', index],
+        undefined,
+        { formattingOptions },
+      )
+      updatedContents = applyEdits(updatedContents, edits)
+      changed = true
+    }
+  }
+
   return {
-    changed: true,
-    contents: applyEdits(contents, edits),
+    changed,
+    contents: updatedContents,
   }
 }
 
@@ -185,6 +249,13 @@ async function requestedArgvPath(arguments_) {
 
 async function main() {
   const argvPath = await requestedArgvPath(process.argv.slice(2))
+  const link = await installExtensionSymlink()
+  console.log(
+    link.changed
+      ? `Linked ${link.linkPath} to ${repositoryRoot}`
+      : `The local extension is already linked at ${link.linkPath}`,
+  )
+
   let contents = '{}\n'
   try {
     contents = await readFile(argvPath, 'utf8')

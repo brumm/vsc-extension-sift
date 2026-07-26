@@ -8,16 +8,18 @@ import * as vscode from 'vscode';
 import { ProjectionDocument } from '../projection-document';
 import { ProjectionSaveCoordinator } from '../projection-save';
 
+const extensionId = 'brumm.sift';
+
 suite('Extension Test Suite', () => {
 	test('extension activates', async () => {
-		const extension = vscode.extensions.getExtension('local.sift');
-		assert.ok(extension, 'local.sift should be installed in the test host');
+		const extension = vscode.extensions.getExtension(extensionId);
+		assert.ok(extension, `${extensionId} should be installed in the test host`);
 		await extension.activate();
 		assert.equal(extension.isActive, true);
 	});
 
 	test('extension activates when VS Code restores a Sift editor', () => {
-		const extension = vscode.extensions.getExtension('local.sift');
+		const extension = vscode.extensions.getExtension(extensionId);
 		assert.ok(extension);
 		assert.ok(
 			(extension.packageJSON.activationEvents as string[]).includes(
@@ -27,7 +29,7 @@ suite('Extension Test Suite', () => {
 	});
 
 	test('Escape routes through the SIFT close command', () => {
-		const extension = vscode.extensions.getExtension('local.sift');
+		const extension = vscode.extensions.getExtension(extensionId);
 		assert.ok(extension);
 		const keybindings = extension.packageJSON.contributes?.keybindings as
 			| { command?: string; key?: string; when?: string }[]

@@ -13,4 +13,4 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 
 ## Local setup
 
-After installing dependencies, run `pnpm run enable-proposed-api` once and restart VS Code. The script adds Sift to VS Code's existing `enable-proposed-api` runtime argument without replacing other settings.
+After installing dependencies, run `pnpm run install-local` once and restart VS Code. The script links this checkout into VS Code's extension directory and adds Sift to the existing `enable-proposed-api` runtime argument without replacing other settings. On macOS, current VS Code releases read this file from `~/.vscode/argv.json`.

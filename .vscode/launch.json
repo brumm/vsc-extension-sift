@@ -12,7 +12,7 @@
 			"args": [
 				"--extensionDevelopmentPath=${workspaceFolder}",
 				"--enable-proposed-api",
-				"local.sift"
+				"brumm.sift"
 			],
 			"outFiles": [
 				"${workspaceFolder}/out/**/*.js"

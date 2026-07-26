@@ -6,6 +6,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readlink,
   rm,
   stat,
   symlink,
@@ -20,7 +21,49 @@ import {
   defaultArgvPath,
   enableProposedApi,
   extensionId,
+  installExtensionSymlink,
 } from './enable-proposed-api.mjs'
+
+test('derives the extension ID from the package manifest', () => {
+  assert.equal(extensionId, 'brumm.sift')
+})
+
+test('installs the local extension symlink idempotently', async () => {
+  const homeDirectory = await mkdtemp(join(tmpdir(), 'sift-link-home-'))
+  try {
+    const first = await installExtensionSymlink(homeDirectory)
+    const second = await installExtensionSymlink(homeDirectory)
+
+    assert.equal(first.changed, true)
+    assert.equal(second.changed, false)
+    assert.equal((await lstat(first.linkPath)).isSymbolicLink(), true)
+    assert.equal(
+      await readlink(first.linkPath),
+      dirname(dirname(fileURLToPath(import.meta.url))),
+    )
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true })
+  }
+})
+
+test('refuses to overwrite a non-symlink extension install', async () => {
+  const homeDirectory = await mkdtemp(join(tmpdir(), 'sift-link-home-'))
+  const linkPath = join(
+    homeDirectory,
+    '.vscode',
+    'extensions',
+    'brumm.sift-0.0.1',
+  )
+  try {
+    await mkdir(linkPath, { recursive: true })
+    await assert.rejects(
+      installExtensionSymlink(homeDirectory),
+      /exists and is not a symbolic link/,
+    )
+  } finally {
+    await rm(homeDirectory, { recursive: true, force: true })
+  }
+})
 
 test('adds the extension without discarding comments or existing arguments', () => {
   const input = `{
@@ -51,7 +94,19 @@ test('appends to an existing proposed API list without discarding comments', () 
   assert.equal(result.changed, true)
   assert.match(result.contents, /\/\/ Keep this extension enabled too\./)
   assert.match(result.contents, /another\.extension/)
-  assert.match(result.contents, /local\.sift/)
+  assert.match(result.contents, /brumm\.sift/)
+})
+
+test('replaces the previous local extension ID', () => {
+  const result = enableProposedApi(`{
+  "enable-proposed-api": ["another.extension", "local.sift"]
+}
+`)
+
+  assert.equal(result.changed, true)
+  assert.match(result.contents, /another\.extension/)
+  assert.match(result.contents, /brumm\.sift/)
+  assert.doesNotMatch(result.contents, /local\.sift/)
 })
 
 test('resolves the current Stable argv.json location by platform', () => {
@@ -164,9 +219,20 @@ test('CLI uses ~/.vscode when the legacy macOS file also exists', {
     })
 
     assert.equal(result.status, 0, result.stderr)
-    assert.match(await readFile(standardPath, 'utf8'), /local\.sift/)
-    assert.doesNotMatch(await readFile(legacyPath, 'utf8'), /local\.sift/)
+    assert.match(await readFile(standardPath, 'utf8'), /brumm\.sift/)
+    assert.doesNotMatch(await readFile(legacyPath, 'utf8'), /brumm\.sift/)
     assert.match(result.stderr, /Ignoring .*Application Support.*using .*\.vscode/)
+    const extensionLink = join(
+      homeDirectory,
+      '.vscode',
+      'extensions',
+      'brumm.sift-0.0.1',
+    )
+    assert.equal((await lstat(extensionLink)).isSymbolicLink(), true)
+    assert.equal(
+      await readlink(extensionLink),
+      dirname(dirname(fileURLToPath(import.meta.url))),
+    )
   } finally {
     await rm(homeDirectory, { recursive: true, force: true })
   }
@@ -189,11 +255,15 @@ test('CLI invocation and argv.json both work through symlinks', {
 
     const result = spawnSync(process.execPath, [scriptLink, '--argv', argvLink], {
       encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: directory,
+      },
     })
 
     assert.equal(result.status, 0, result.stderr)
     assert.equal((await lstat(argvLink)).isSymbolicLink(), true)
-    assert.match(await readFile(argvTarget, 'utf8'), /local\.sift/)
+    assert.match(await readFile(argvTarget, 'utf8'), /brumm\.sift/)
     assert.equal((await stat(argvTarget)).mode & 0o777, 0o664)
   } finally {
     await rm(directory, { recursive: true, force: true })
@@ -213,11 +283,15 @@ test('CLI preserves a dangling argv.json symlink and creates its target', {
     const script = fileURLToPath(new URL('./enable-proposed-api.mjs', import.meta.url))
     const result = spawnSync(process.execPath, [script, '--argv', argvLink], {
       encoding: 'utf8',
+      env: {
+        ...process.env,
+        HOME: directory,
+      },
     })
 
     assert.equal(result.status, 0, result.stderr)
     assert.equal((await lstat(argvLink)).isSymbolicLink(), true)
-    assert.match(await readFile(argvTarget, 'utf8'), /local\.sift/)
+    assert.match(await readFile(argvTarget, 'utf8'), /brumm\.sift/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
