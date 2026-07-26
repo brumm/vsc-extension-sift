@@ -110,7 +110,6 @@
     "watch": "node esbuild.mjs --watch",
     "dev": "pnpm run compile && code --enable-proposed-api brumm.sift --new-window --extensionDevelopmentPath=\"$PWD\" \"$PWD\"",
     "install-local": "pnpm run compile && node scripts/enable-proposed-api.mjs",
-    "enable-proposed-api": "pnpm run install-local",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",
     "test": "node --test out/test/*.unit.js scripts/*.test.mjs && vscode-test",
