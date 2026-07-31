@@ -151,7 +151,17 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         const documentStart = new vscode.Position(0, 0)
         editor.selection = new vscode.Selection(documentStart, documentStart)
         editor.revealRange(new vscode.Range(documentStart, documentStart))
-        vscode.commands.executeCommand(
+        void vscode.commands.executeCommand(
+          'workbench.action.focusActiveEditorGroup',
+        )
+        return
+      }
+      case 'focusEditorEnd': {
+        const lastLine = editor.document.lineCount - 1
+        const documentEnd = editor.document.lineAt(lastLine).range.end
+        editor.selection = new vscode.Selection(documentEnd, documentEnd)
+        editor.revealRange(new vscode.Range(documentEnd, documentEnd))
+        void vscode.commands.executeCommand(
           'workbench.action.focusActiveEditorGroup',
         )
         return

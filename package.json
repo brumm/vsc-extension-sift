@@ -81,6 +81,11 @@
         "when": "resourceScheme == sift-editor && editorTextFocus"
       },
       {
+        "command": "sift.cursorDownOrFocusQuery",
+        "key": "down",
+        "when": "resourceScheme == sift-editor && editorTextFocus"
+      },
+      {
         "command": "sift.openSource",
         "key": "enter",
         "when": "resourceScheme == sift-editor && editorTextFocus"

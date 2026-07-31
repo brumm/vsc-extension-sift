@@ -1245,6 +1245,31 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         await vscode.commands.executeCommand('cursorUp')
       },
     ),
+    vscode.commands.registerCommand(
+      'sift.cursorDownOrFocusQuery',
+      async () => {
+        const editor = vscode.window.activeTextEditor
+        const session = activeSession(sessions)
+        if (!editor || !session) {
+          await vscode.commands.executeCommand('cursorDown')
+          return
+        }
+        if (
+          editor.selections.length === 1 &&
+          editor.selection.isEmpty &&
+          editor.selection.active.line === editor.document.lineCount - 1
+        ) {
+          const documentStart = new vscode.Position(0, 0)
+          editor.revealRange(
+            new vscode.Range(documentStart, documentStart),
+            vscode.TextEditorRevealType.AtTop,
+          )
+          setTimeout(focusQueryInput, 0)
+          return
+        }
+        await vscode.commands.executeCommand('cursorDown')
+      },
+    ),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('files.exclude')) {
         return

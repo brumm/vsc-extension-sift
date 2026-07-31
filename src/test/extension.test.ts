@@ -41,6 +41,24 @@ suite('Extension Test Suite', () => {
 		));
 	});
 
+	test('arrow keys route through SIFT query focus commands', () => {
+		const extension = vscode.extensions.getExtension(extensionId);
+		assert.ok(extension);
+		const keybindings = extension.packageJSON.contributes?.keybindings as
+			| { command?: string; key?: string; when?: string }[]
+			| undefined;
+		assert.ok(keybindings?.some(keybinding =>
+			keybinding.command === 'sift.cursorUpOrFocusQuery' &&
+			keybinding.key === 'up' &&
+			keybinding.when?.includes('resourceScheme == sift-editor'),
+		));
+		assert.ok(keybindings?.some(keybinding =>
+			keybinding.command === 'sift.cursorDownOrFocusQuery' &&
+			keybinding.key === 'down' &&
+			keybinding.when?.includes('resourceScheme == sift-editor'),
+		));
+	});
+
 	test('path save moves a file and removes its empty source folder', async () => {
 		const rootPath = await mkdtemp(join(tmpdir(), 'sift-path-save-'));
 		try {

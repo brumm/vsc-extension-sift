@@ -214,6 +214,11 @@
       const start = selectAll ? 0 : input.value.length
       input.setSelectionRange(start, input.value.length)
     }
+    const focusInputAfterLayout = selectAll => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => focusInput(selectAll))
+      })
+    }
     const renderOptions = () => {
       for (const button of optionButtons) {
         const active = options[button.dataset.option]
@@ -263,6 +268,12 @@
       } else if (event.key === 'Escape') {
         event.preventDefault()
         vscode.postMessage({ type: 'closeEditor' })
+      } else if (
+        event.key === 'ArrowUp' ||
+        (event.metaKey && event.key === 'ArrowDown')
+      ) {
+        event.preventDefault()
+        vscode.postMessage({ type: 'focusEditorEnd' })
       } else if (event.key === 'ArrowDown') {
         event.preventDefault()
         vscode.postMessage({ type: 'focusEditor' })
@@ -293,7 +304,7 @@
         renderOptions()
         renderContext()
       } else if (message.type === 'focus') {
-        focusInput(message.selectAll)
+        focusInputAfterLayout(message.selectAll)
       }
     })
     vscode.postMessage({ type: 'ready' })
