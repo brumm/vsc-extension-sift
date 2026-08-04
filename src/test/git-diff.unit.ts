@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
 	adaptParsedDiff,
 	loadWorkingTreeDiff,
+	listDiffBaseRefs,
 	resolveDiffBase,
-	resolveRemoteDefaultBranch,
 } from '../git-diff';
 import { GitRunOptions, GitRunner } from '../git-process';
 
@@ -28,22 +28,19 @@ class StubGitRunner implements GitRunner {
 	}
 }
 
-test('resolves the remote default and its merge base', async () => {
+test('resolves HEAD as the default diff base', async () => {
 	const runner = new StubGitRunner(args => {
-		if (args[0] === 'for-each-ref') {
-			return 'upstream/HEAD upstream/trunk\norigin/HEAD origin/main\n';
-		}
-		assert.deepEqual(args, ['merge-base', 'HEAD', 'origin/main']);
+		assert.deepEqual(args, ['merge-base', 'HEAD', 'HEAD']);
 		return 'abc123\n';
 	});
 
 	assert.deepEqual(await resolveDiffBase(runner, '/repo'), {
-		ref: 'origin/main',
+		ref: 'HEAD',
 		mergeBase: 'abc123',
 	});
 });
 
-test('uses an explicit base without resolving the remote default', async () => {
+test('uses an explicitly selected diff base', async () => {
 	const runner = new StubGitRunner(args => {
 		assert.deepEqual(args, ['merge-base', 'HEAD', 'release']);
 		return 'def456\n';
@@ -56,17 +53,16 @@ test('uses an explicit base without resolving the remote default', async () => {
 	assert.equal(runner.calls.length, 1);
 });
 
-test('falls back to the conventional origin main ref', async () => {
-	const runner = new StubGitRunner(args => {
-		if (args[0] === 'for-each-ref') {
-			return '';
-		}
-		if (args.at(-1) === 'origin/main') {
-			return 'abc123\n';
-		}
-		throw new Error('missing');
-	});
-	assert.equal(await resolveRemoteDefaultBranch(runner, '/repo'), 'origin/main');
+test('lists HEAD first for a current working-tree comparison', async () => {
+	const runner = new StubGitRunner(() =>
+		'origin/main\nfeature\norigin/HEAD\nv1.0\nfeature\n');
+
+	assert.deepEqual(await listDiffBaseRefs(runner, '/repo'), [
+		'HEAD',
+		'feature',
+		'origin/main',
+		'v1.0',
+	]);
 });
 
 test('adapts additions, deletions, and current line numbers', () => {

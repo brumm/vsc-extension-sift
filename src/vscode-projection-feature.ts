@@ -1444,13 +1444,17 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         }
         const rootKey = workspaceFolder.uri.toString()
         const remembered = rememberedDiffBases[rootKey]
-        if (remembered && refs.includes(remembered)) {
-          refs = [remembered, ...refs.filter(ref => ref !== remembered)]
+        if (remembered && remembered !== 'HEAD' && refs.includes(remembered)) {
+          refs = ['HEAD', remembered, ...refs.filter(
+            ref => ref !== 'HEAD' && ref !== remembered,
+          )]
         }
         const selected = await vscode.window.showQuickPick(
           refs.map(ref => ({
             label: ref,
-            description: ref === remembered ? 'Last used' : undefined,
+            description: ref === 'HEAD'
+              ? 'Current commit'
+              : ref === remembered ? 'Last used' : undefined,
           })),
           {
             title: 'Sift: Diff Against…',

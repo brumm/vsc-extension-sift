@@ -25,7 +25,7 @@ export async function resolveDiffBase(
 	rootPath: string,
 	requestedRef?: string,
 ): Promise<ResolvedDiffBase> {
-	const ref = requestedRef ?? await resolveRemoteDefaultBranch(runner, rootPath);
+	const ref = requestedRef ?? 'HEAD';
 	const mergeBase = (await runner.run(rootPath, [
 		'merge-base',
 		'HEAD',
@@ -35,47 +35,6 @@ export async function resolveDiffBase(
 		throw new Error(`Git could not find a merge base with ${ref}.`);
 	}
 	return { ref, mergeBase };
-}
-
-export async function resolveRemoteDefaultBranch(
-	runner: GitRunner,
-	rootPath: string,
-): Promise<string> {
-	const symbolicRefs = (await runner.run(rootPath, [
-		'for-each-ref',
-		'--format=%(refname:short) %(symref:short)',
-		'refs/remotes',
-	])).trim().split('\n').filter(Boolean);
-	const defaults = symbolicRefs.flatMap(line => {
-		const [name, target] = line.split(' ');
-		return name?.endsWith('/HEAD') && target ? [{ name, target }] : [];
-	});
-	const preferred = defaults.find(item => item.name === 'origin/HEAD') ?? defaults[0];
-	if (preferred) {
-		return preferred.target;
-	}
-
-	const remotes = [...new Set(symbolicRefs.flatMap(line => {
-		const name = line.split(' ')[0];
-		const separator = name?.indexOf('/');
-		return separator && separator > 0 ? [name.slice(0, separator)] : [];
-	}))];
-	const conventionalRefs = [
-		'origin/main',
-		'origin/master',
-		...remotes.flatMap(remote => [`${remote}/main`, `${remote}/master`]),
-	];
-	for (const candidate of new Set(conventionalRefs)) {
-		try {
-			await runner.run(rootPath, ['rev-parse', '--verify', '--quiet', candidate]);
-			return candidate;
-		} catch {
-			// Try the next conventional remote branch.
-		}
-	}
-	throw new Error(
-		'Git remote default branch is unavailable. Use “Sift: Diff Against…” to choose a base.',
-	);
 }
 
 export async function listDiffBaseRefs(
@@ -89,9 +48,10 @@ export async function listDiffBaseRefs(
 		'refs/remotes',
 		'refs/tags',
 	]);
-	return [...new Set(output.split('\n').map(value => value.trim()).filter(
+	const refs = [...new Set(output.split('\n').map(value => value.trim()).filter(
 		value => value && !value.endsWith('/HEAD'),
 	))].sort((left, right) => left.localeCompare(right));
+	return ['HEAD', ...refs];
 }
 
 export async function loadWorkingTreeDiff(
