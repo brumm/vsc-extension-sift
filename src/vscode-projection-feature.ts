@@ -1233,12 +1233,30 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       }
     }
   }
+  const refreshDiffSessionsForUri = (uri: vscode.Uri): void => {
+    const folder = vscode.workspace.getWorkspaceFolder(uri)
+    if (folder) {
+      refreshDiffSessions(folder.uri.toString())
+    }
+  }
   const gitWatchers = (vscode.workspace.workspaceFolders ?? []).flatMap(folder => {
     if (folder.uri.scheme !== 'file') {
       return []
     }
     const watcher = vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(folder, '.git/{HEAD,index,packed-refs,refs/**}'),
+    )
+    watcher.onDidCreate(() => refreshDiffSessions(folder.uri.toString()))
+    watcher.onDidChange(() => refreshDiffSessions(folder.uri.toString()))
+    watcher.onDidDelete(() => refreshDiffSessions(folder.uri.toString()))
+    return [watcher]
+  })
+  const workspaceFileWatchers = (vscode.workspace.workspaceFolders ?? []).flatMap(folder => {
+    if (folder.uri.scheme !== 'file') {
+      return []
+    }
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(folder, '**/*'),
     )
     watcher.onDidCreate(() => refreshDiffSessions(folder.uri.toString()))
     watcher.onDidChange(() => refreshDiffSessions(folder.uri.toString()))
@@ -1260,6 +1278,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     filterInsets,
     projectSearch,
     ...gitWatchers,
+    ...workspaceFileWatchers,
     vscode.workspace.registerFileSystemProvider(scheme, provider, {
       isCaseSensitive: true,
       isReadonly: false,
@@ -1653,8 +1672,20 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         }
       }
     }),
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      if (document.uri.scheme === 'file') {
+        refreshDiffSessionsForUri(document.uri)
+      }
+    }),
+    vscode.workspace.onDidCreateFiles((event) => {
+      for (const uri of event.files) {
+        refreshDiffSessionsForUri(uri)
+      }
+    }),
     vscode.workspace.onDidRenameFiles((event) => {
       for (const file of event.files) {
+        refreshDiffSessionsForUri(file.oldUri)
+        refreshDiffSessionsForUri(file.newUri)
         for (const session of sessions.values()) {
           if (
             session.target.kind === 'file' &&
@@ -1671,6 +1702,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }),
     vscode.workspace.onDidDeleteFiles((event) => {
       for (const uri of event.files) {
+        refreshDiffSessionsForUri(uri)
         for (const session of sessions.values()) {
           if (
             session.target.kind === 'file' &&
