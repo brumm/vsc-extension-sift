@@ -67,6 +67,14 @@
       {
         "command": "sift.siftPaths",
         "title": "Sift Paths"
+      },
+      {
+        "command": "sift.siftDiff",
+        "title": "Sift: Diff"
+      },
+      {
+        "command": "sift.siftDiffAgainst",
+        "title": "Sift: Diff Against…"
       }
     ],
     "keybindings": [
@@ -138,6 +146,7 @@
     "serialize-javascript": "^7.0.6"
   },
   "dependencies": {
-    "@ff-labs/fff-node": "^0.10.0"
+    "@ff-labs/fff-node": "^0.10.0",
+    "parse-diff": "^0.12.0"
   }
 }

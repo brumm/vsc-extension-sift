@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
-import { FffProjectSearch } from './project-search';
+import { FffProjectSearch, splitFffFilter } from './project-search';
+import { loadWorkingTreeDiff, resolveDiffBase } from './git-diff';
+import { GitRunner } from './git-process';
 import { ProjectionDocument } from './projection-document';
 import {
 	ProjectionBuild,
@@ -9,7 +11,10 @@ import {
 import { FilterQuery } from './projection-document';
 
 export class VscodeProjectionBuilder implements ProjectionBuilder {
-	constructor(private readonly projectSearch: FffProjectSearch) {}
+	constructor(
+		private readonly projectSearch: FffProjectSearch,
+		private readonly gitRunner: GitRunner,
+	) {}
 
 	async build(
 		target: ProjectionTarget,
@@ -31,6 +36,45 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 
 		const root = vscode.Uri.parse(target.rootUri);
 		const excludeGlobs = enabledFilesExcludeGlobs(root);
+		if (target.kind === 'diff') {
+			const base = await resolveDiffBase(
+				this.gitRunner,
+				root.fsPath,
+				target.baseRef,
+			);
+			const changedFiles = await loadWorkingTreeDiff(
+				this.gitRunner,
+				root.fsPath,
+				base.mergeBase,
+			);
+			const split = splitFffFilter(filter);
+			let matchingPaths: Set<string> | undefined;
+			if (split.constraints.length > 0) {
+				matchingPaths = new Set((await this.projectSearch.searchPaths({
+					rootUri: target.rootUri,
+					rootPath: root.fsPath,
+					query: split.constraints.join(' '),
+					excludeGlobs,
+					resolveUri: relativePath => relativePath,
+				})).map(match => match.relativePath));
+			}
+			const files = changedFiles.filter(file =>
+				!matchingPaths || matchingPaths.has(file.relativePath),
+			).map(file => ({
+				...file,
+				uri: file.status === 'deleted'
+					? undefined
+					: vscode.Uri.joinPath(root, ...file.relativePath.split('/')).toString(),
+			}));
+			return {
+				projection: ProjectionDocument.forDiff(files, {
+					...filter,
+					text: split.content,
+				}),
+				languageId: 'plaintext',
+				message: `Compared with ${base.ref} at merge base ${base.mergeBase.slice(0, 12)}`,
+			};
+		}
 		if (target.kind === 'paths') {
 			const matches = await this.projectSearch.searchPaths({
 				rootUri: target.rootUri,

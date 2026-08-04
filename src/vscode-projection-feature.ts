@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
+import { listDiffBaseRefs } from './git-diff'
+import { GitProcessRunner } from './git-process'
 import { FffProjectSearch } from './project-search'
 import { selectProjectWorkspace } from './project-workspace'
 import {
@@ -23,6 +25,7 @@ import { VscodeProjectionBuilder } from './vscode-projection-builder'
 
 const scheme = 'sift-editor'
 const storedSessionsKey = 'sift.sessions'
+const storedDiffBasesKey = 'sift.diffBases'
 
 interface FilterSessionRuntime {
   virtualUri: vscode.Uri
@@ -79,7 +82,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     save: async (descriptors) => {
       await context.workspaceState.update(storedSessionsKey, descriptors)
     },
-  }, new VscodeProjectionBuilder(projectSearch))
+  }, new VscodeProjectionBuilder(projectSearch, new GitProcessRunner()))
+  const gitRunner = new GitProcessRunner()
+  const rememberedDiffBases = context.workspaceState.get<Record<string, string>>(
+    storedDiffBasesKey,
+    {},
+  )
   const sessionRuntimes = new Map<string, FilterSessionRuntime>()
   const provider = new ProjectionFileSystem()
   const saveCoordinator = new ProjectionSaveCoordinator()
@@ -106,6 +114,26 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       margin: '0 1.5em 0 0',
       fontStyle: 'italic',
     },
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
+  const addedLineDecoration = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('diffEditor.insertedTextBackground'),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
+  const deletedLineDecoration = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('diffEditor.removedTextBackground'),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
+  const hunkSeparatorDecoration = vscode.window.createTextEditorDecorationType({
+    isWholeLine: true,
+    borderColor: new vscode.ThemeColor('editorGroup.border'),
+    borderStyle: 'solid',
+    borderWidth: '1px 0 0 0',
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
 
@@ -199,7 +227,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       ? 'Sift Editor'
       : session.target.kind === 'paths'
         ? 'Sift Paths'
-        : 'Sift Project'
+        : session.target.kind === 'diff'
+          ? 'Sift Diff'
+          : 'Sift Project'
     const runtime = {
       virtualUri: makeVirtualUri(session.id, title),
     }
@@ -286,6 +316,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     editor.setDecorations(lineNumberDecoration, [])
     editor.setDecorations(fileHeaderDecoration, [])
     editor.setDecorations(matchHighlightDecoration, [])
+    editor.setDecorations(addedLineDecoration, [])
+    editor.setDecorations(deletedLineDecoration, [])
+    editor.setDecorations(hunkSeparatorDecoration, [])
   }
 
   const clearSessionDecorations = (session: ProjectionSession): void => {
@@ -387,6 +420,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
                       row.source.line,
                       session.projection.sourceLineCount,
                     ),
+                    color: row.change === 'added'
+                      ? new vscode.ThemeColor('gitDecoration.addedResourceForeground')
+                      : undefined,
                   },
                 },
                 hoverMessage: `${vscode.Uri.parse(row.source.uri).fsPath}:${row.source.line + 1}`,
@@ -402,12 +438,58 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           ? [{
         range: new vscode.Range(line, 0, line, 0),
         renderOptions: {
-          before: { contentText: row.label },
+          before: {
+            contentText: row.label,
+            color: row.changeStatus
+              ? new vscode.ThemeColor(diffStatusColor(row.changeStatus))
+              : undefined,
+          },
         },
         hoverMessage: row.sourceUri
           ? vscode.Uri.parse(row.sourceUri).fsPath
           : undefined,
       }]
+          : [],
+      ),
+    )
+    editor.setDecorations(
+      addedLineDecoration,
+      session.projection.rows.flatMap((row, line) =>
+        row.kind === 'mapped' && row.change === 'added'
+          ? [new vscode.Range(line, 0, line, 0)]
+          : [],
+      ),
+    )
+    editor.setDecorations(
+      deletedLineDecoration,
+      session.projection.rows.flatMap((row, line) =>
+        row.kind === 'annotation' && row.role === 'deletion'
+          ? [{
+              range: new vscode.Range(
+                line,
+                0,
+                line,
+                editor.document.lineAt(line).text.length,
+              ),
+              renderOptions: {
+                before: {
+                  contentText: formatSourceLineNumber(
+                    row.sourceLine ?? 0,
+                    session.projection.sourceLineCount,
+                  ),
+                  color: new vscode.ThemeColor('gitDecoration.deletedResourceForeground'),
+                  margin: '0 1.5em 0 0',
+                },
+              },
+            }]
+          : [],
+      ),
+    )
+    editor.setDecorations(
+      hunkSeparatorDecoration,
+      session.projection.rows.flatMap((row, line) =>
+        row.hunkStart
+          ? [new vscode.Range(line, 0, line, 0)]
           : [],
       ),
     )
@@ -418,7 +500,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           return []
         }
         const line = editor.document.lineAt(projectedLine).text
-        const matches = session.target.kind === 'project'
+        const matches = session.target.kind === 'project' || session.target.kind === 'diff'
           ? line === row.baseline ? row.matches ?? [] : []
           : findMatches(line)
         return matches.map(
@@ -680,12 +762,16 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       ? 'Sift Project'
       : session.target.kind === 'paths'
         ? 'Sift Paths'
-        : 'Sift Editor'
+        : session.target.kind === 'diff'
+          ? 'Sift Diff'
+          : 'Sift Editor'
     input.prompt = session.target.kind === 'project'
       ? 'Case-insensitive unless Match Case is enabled; fff path and Git constraints are supported'
       : session.target.kind === 'paths'
         ? 'FFF fuzzy path search; inline glob, exclusion, and Git constraints are supported'
-        : 'Literal, case-insensitive substring'
+        : session.target.kind === 'diff'
+          ? 'Leading FFF path constraints, then optional changed-line content'
+          : 'Literal, case-insensitive substring'
     input.value = session.filter.text
     input.ignoreFocusOut = true
     input.onDidChangeValue((value) => {
@@ -795,6 +881,41 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     await refresh(session)
     const hasInset = await showSession(session, focusFilterInput, viewColumn)
     if (focusFilterInput && !hasInset) {
+      showFilterInput(session)
+    }
+  }
+
+  const openDiff = async (
+    workspaceFolder: vscode.WorkspaceFolder,
+    baseRef?: string,
+    initialQuery = '',
+    sourceViewColumn?: vscode.ViewColumn,
+  ): Promise<void> => {
+    const session = sessions.open({
+      id: randomUUID(),
+      target: {
+        kind: 'diff',
+        rootUri: workspaceFolder.uri.toString(),
+        baseRef,
+      },
+      filter: {
+        text: initialQuery,
+        matchCase: false,
+        wholeWord: false,
+        useRegex: false,
+        contextLines: 0,
+      },
+      languageId: 'plaintext',
+    })
+    runtimeFor(session).sourceViewColumn =
+      sourceViewColumn ??
+      vscode.window.visibleTextEditors.find(
+        (editor) => editor.document.uri.scheme !== scheme,
+      )?.viewColumn ??
+      vscode.ViewColumn.One
+    await refresh(session)
+    const hasInset = await showSession(session, true)
+    if (!hasInset) {
       showFilterInput(session)
     }
   }
@@ -1072,9 +1193,35 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       output.appendLine(warning)
       void vscode.window.showWarningMessage(warning)
     }
-    if (refreshAfterSave && session.target.kind !== 'paths') {
+    if (
+      session.target.kind !== 'paths' &&
+      (refreshAfterSave || (session.target.kind === 'diff' && outcome.editCount > 0))
+    ) {
       setTimeout(() => scheduleRefresh(session, { force: true }), 0)
     }
+  })
+
+  const refreshDiffSessions = (rootUri: string): void => {
+    for (const session of sessions.values()) {
+      if (
+        session.target.kind === 'diff' &&
+        session.target.rootUri === rootUri
+      ) {
+        scheduleRefresh(session)
+      }
+    }
+  }
+  const gitWatchers = (vscode.workspace.workspaceFolders ?? []).flatMap(folder => {
+    if (folder.uri.scheme !== 'file') {
+      return []
+    }
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(folder, '.git/{HEAD,index,packed-refs,refs/**}'),
+    )
+    watcher.onDidCreate(() => refreshDiffSessions(folder.uri.toString()))
+    watcher.onDidChange(() => refreshDiffSessions(folder.uri.toString()))
+    watcher.onDidDelete(() => refreshDiffSessions(folder.uri.toString()))
+    return [watcher]
   })
 
   context.subscriptions.push(
@@ -1084,9 +1231,13 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     lineNumberDecoration,
     fileHeaderDecoration,
     matchHighlightDecoration,
+    addedLineDecoration,
+    deletedLineDecoration,
+    hunkSeparatorDecoration,
     sourceLineHighlightDecoration,
     filterInsets,
     projectSearch,
+    ...gitWatchers,
     vscode.workspace.registerFileSystemProvider(scheme, provider, {
       isCaseSensitive: true,
       isReadonly: false,
@@ -1208,6 +1359,95 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             : sourceSession
               ? runtimeFor(sourceSession).sourceViewColumn
               : undefined,
+        )
+      },
+    ),
+    vscode.commands.registerCommand(
+      'sift.siftDiff',
+      async () => {
+        const sourceEditor = vscode.window.activeTextEditor
+        const activeDocument = sourceEditor?.document.uri.scheme === scheme
+          ? undefined
+          : sourceEditor?.document
+        const { workspaceFolder, sourceDocument } = selectProjectWorkspace(
+          activeDocument,
+          (document) => vscode.workspace.getWorkspaceFolder(document.uri),
+          vscode.workspace.workspaceFolders,
+          (folder) => folder.uri.scheme === 'file',
+        )
+        if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+          void vscode.window.showWarningMessage(
+            'Open a local workspace folder before opening a Sift diff.',
+          )
+          return
+        }
+        const initialQuery = sourceEditor && sourceDocument
+          ? sourceDocument.getText(sourceEditor.selections[0])
+          : ''
+        await openDiff(
+          workspaceFolder,
+          undefined,
+          initialQuery,
+          sourceEditor?.viewColumn,
+        )
+      },
+    ),
+    vscode.commands.registerCommand(
+      'sift.siftDiffAgainst',
+      async () => {
+        const sourceEditor = vscode.window.activeTextEditor
+        const activeDocument = sourceEditor?.document.uri.scheme === scheme
+          ? undefined
+          : sourceEditor?.document
+        const { workspaceFolder, sourceDocument } = selectProjectWorkspace(
+          activeDocument,
+          (document) => vscode.workspace.getWorkspaceFolder(document.uri),
+          vscode.workspace.workspaceFolders,
+          (folder) => folder.uri.scheme === 'file',
+        )
+        if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+          void vscode.window.showWarningMessage(
+            'Open a local workspace folder before opening a Sift diff.',
+          )
+          return
+        }
+        let refs: string[]
+        try {
+          refs = await listDiffBaseRefs(gitRunner, workspaceFolder.uri.fsPath)
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            `Could not list Git refs: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          return
+        }
+        const rootKey = workspaceFolder.uri.toString()
+        const remembered = rememberedDiffBases[rootKey]
+        if (remembered && refs.includes(remembered)) {
+          refs = [remembered, ...refs.filter(ref => ref !== remembered)]
+        }
+        const selected = await vscode.window.showQuickPick(
+          refs.map(ref => ({
+            label: ref,
+            description: ref === remembered ? 'Last used' : undefined,
+          })),
+          {
+            title: 'Sift: Diff Against…',
+            placeHolder: 'Choose a local branch, remote branch, or tag',
+          },
+        )
+        if (!selected) {
+          return
+        }
+        rememberedDiffBases[rootKey] = selected.label
+        await context.workspaceState.update(storedDiffBasesKey, rememberedDiffBases)
+        const initialQuery = sourceEditor && sourceDocument
+          ? sourceDocument.getText(sourceEditor.selections[0])
+          : ''
+        await openDiff(
+          workspaceFolder,
+          selected.label,
+          initialQuery,
+          sourceEditor?.viewColumn,
         )
       },
     ),
@@ -1490,4 +1730,19 @@ function makeVirtualUri(id: string, title: string): vscode.Uri {
     path: `/${title}`,
     query: `session=${encodeURIComponent(id)}`,
   })
+}
+
+function diffStatusColor(
+  status: 'added' | 'modified' | 'deleted' | 'renamed',
+): string {
+  switch (status) {
+    case 'added':
+      return 'gitDecoration.addedResourceForeground'
+    case 'deleted':
+      return 'gitDecoration.deletedResourceForeground'
+    case 'renamed':
+      return 'gitDecoration.renamedResourceForeground'
+    case 'modified':
+      return 'gitDecoration.modifiedResourceForeground'
+  }
 }

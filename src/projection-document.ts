@@ -40,12 +40,17 @@ export type ProjectionRow =
 		baseline: string;
 		role?: 'path';
 		matches?: readonly FilterMatch[];
+		change?: 'added';
+		hunkStart?: boolean;
 	}
 	| {
 		kind: 'annotation';
-		role: 'header' | 'spacer' | 'message' | 'terminal';
+		role: 'header' | 'spacer' | 'message' | 'terminal' | 'deletion';
 		label?: string;
 		sourceUri?: string;
+		sourceLine?: number;
+		changeStatus?: DiffProjectionFile['status'];
+		hunkStart?: boolean;
 	};
 
 export interface ProjectionSourceEdit {
@@ -76,6 +81,19 @@ export interface ProjectSearchMatch {
 export interface PathProjectionInput {
 	uri: string;
 	relativePath: string;
+}
+
+export interface DiffProjectionFile {
+	uri?: string;
+	relativePath: string;
+	previousPath?: string;
+	status: 'added' | 'modified' | 'deleted' | 'renamed';
+	lines: readonly {
+		kind: 'added' | 'deleted';
+		line: number;
+		text: string;
+		hunk?: number;
+	}[];
 }
 
 export interface ProjectionPathRename {
@@ -183,6 +201,82 @@ export class ProjectionDocument {
 		);
 	}
 
+	static forDiff(
+		files: readonly DiffProjectionFile[],
+		filter: FilterQuery,
+	): ProjectionDocument {
+		const hasContentFilter = filter.text.length > 0;
+		const findMatches = makeFilterMatchFinder(filter);
+		const content: string[] = [];
+		const rows: ProjectionRow[] = [];
+		let maximumLine = 0;
+
+		for (const file of files) {
+			const visibleLines = file.lines.flatMap(line => {
+				if (line.kind === 'deleted') {
+					return hasContentFilter ? [] : [line];
+				}
+				return !hasContentFilter || findMatches(line.text).length > 0 ? [line] : [];
+			});
+			if (visibleLines.length === 0 && hasContentFilter) {
+				continue;
+			}
+			if (rows.length > 0) {
+				content.push('');
+				rows.push({ kind: 'annotation', role: 'spacer' });
+			}
+			const status = file.status === 'renamed' && file.previousPath
+				? `${file.previousPath} → ${file.relativePath}`
+				: `${file.relativePath} (${file.status})`;
+			content.push('');
+			rows.push({
+				kind: 'annotation',
+				role: 'header',
+				label: status,
+				sourceUri: file.uri,
+				changeStatus: file.status,
+			});
+			let visibleHunk: number | undefined;
+			for (const line of visibleLines) {
+				const hunk = line.hunk ?? 0;
+				const hunkStart = visibleHunk !== undefined && hunk !== visibleHunk;
+				visibleHunk = hunk;
+				maximumLine = Math.max(maximumLine, line.line);
+				if (line.kind === 'deleted') {
+					content.push(line.text);
+					rows.push({
+						kind: 'annotation',
+						role: 'deletion',
+						label: 'Deleted line',
+						sourceLine: line.line,
+						hunkStart,
+					});
+					continue;
+				}
+				if (!file.uri) {
+					continue;
+				}
+				content.push(line.text);
+				rows.push({
+					kind: 'mapped',
+					source: { uri: file.uri, line: line.line },
+					baseline: line.text,
+					matches: hasContentFilter ? findMatches(line.text) : [],
+					change: 'added',
+					hunkStart,
+				});
+			}
+		}
+
+		return new ProjectionDocument(
+			content.join('\n'),
+			rows.length > 0
+				? rows
+				: [{ kind: 'annotation', role: 'message' }],
+			maximumLine + 1,
+		);
+	}
+
 	static forPaths(paths: readonly PathProjectionInput[]): ProjectionDocument {
 		if (paths.length === 0) {
 			return ProjectionDocument.message('');
@@ -242,9 +336,14 @@ export class ProjectionDocument {
 			const next = this.rows
 				.slice(projectedLine + 1)
 				.find((candidate): candidate is Extract<ProjectionRow, { kind: 'mapped' }> =>
-					candidate.kind === 'mapped',
+					candidate.kind === 'mapped' &&
+					(!row.sourceUri || candidate.source.uri === row.sourceUri),
 				);
-			return next ? { ...next.source, character: 0 } : undefined;
+			return next
+				? { ...next.source, character: 0 }
+				: row.sourceUri
+					? { uri: row.sourceUri, line: 0, character: 0 }
+					: undefined;
 		}
 		return undefined;
 	}

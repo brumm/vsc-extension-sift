@@ -9,7 +9,33 @@ import {
 	compileFffQuery,
 	filesExcludeConstraints,
 	projectSearchMatchesFromGrep,
+	splitFffFilter,
+	splitFffQuery,
 } from '../project-search';
+
+test('splits only leading FFF path constraints from diff content', () => {
+	assert.deepEqual(splitFffQuery('src/ *.ts !test/ changed value'), {
+		constraints: ['src/', '*.ts', '!test/'],
+		content: 'changed value',
+	});
+	assert.deepEqual(splitFffQuery('changed *.ts'), {
+		constraints: [],
+		content: 'changed *.ts',
+	});
+});
+
+test('unescapes a constraint-like literal in diff content', () => {
+	assert.deepEqual(splitFffFilter({
+		text: '\\*.ts changed',
+		matchCase: true,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	}), {
+		constraints: [],
+		content: '*.ts changed',
+	});
+});
 
 test('passes the raw FFF path query through every result page', () => {
 	const query = '**/foo/*.ts !test/ git:modified fuzzy term';

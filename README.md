@@ -4,12 +4,16 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 
 - Sift the active editor or the entire project from the Command Palette.
 - Sift workspace paths, edit matching names, and save to move or rename files.
+- Review and edit working-tree changes against the remote default branch with **Sift: Diff**.
+- Choose a local branch, remote branch, or tag with **Sift: Diff Against…**.
 - Refine results from an inline query input with match-case, whole-word, and regular-expression options.
 - Include up to five surrounding context lines while highlighting only the actual matches.
 - Scope project queries with leading path constraints such as `*.ts`, `src/`, and `!test/`.
 - Edit existing result lines and save the changes back to their source files.
 - Open the mapped source location with **Cmd+Enter** or the editor status item.
 - Keep sifted views open across window reloads and source-file updates.
+
+Diff views include staged and unstaged tracked changes, untracked files as additions, renames, and read-only deleted-line annotations. Leading FFF path constraints filter changed files. Remaining query text filters current-side changed lines. The default base is the merge base of `HEAD` and the remote default branch, such as `origin/main`.
 
 ## Local setup
 

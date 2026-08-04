@@ -205,6 +205,30 @@ test('restores path-search sessions', () => {
 	});
 });
 
+test('restores a diff session with its selected base', () => {
+	const persistence = new MemoryPersistence();
+	persistence.stored = [{
+		...descriptor,
+		target: {
+			kind: 'diff',
+			rootUri: 'file:///workspace',
+			baseRef: 'release',
+		},
+		languageId: 'plaintext',
+	}];
+
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+
+	assert.deepEqual(sessions.get(descriptor.id)?.target, {
+		kind: 'diff',
+		rootUri: 'file:///workspace',
+		baseRef: 'release',
+	});
+});
+
 test('closing a session removes it from persistence', async () => {
 	const persistence = new MemoryPersistence();
 	const builder = new DeferredBuilder();

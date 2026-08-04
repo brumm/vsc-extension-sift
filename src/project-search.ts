@@ -292,17 +292,12 @@ export function compileFffQuery(
 	smartCase: boolean;
 	gitConstraints: string[];
 } {
-	const split = splitFffQuery(filter.text);
+	const split = splitFffFilter(filter);
 	const gitConstraints = split.constraints.filter(isGitConstraint);
 	const constraints = split.constraints.filter(
 		constraint => !isGitConstraint(constraint),
 	);
-	const content = filter.useRegex
-		? split.content
-		: split.content
-			.split(/\s+/)
-			.map(unescapeConstraintToken)
-			.join(' ');
+	const content = split.content;
 	if (!filter.wholeWord && !filter.useRegex) {
 		const compiledContent = filter.matchCase
 			? content
@@ -389,7 +384,7 @@ export function filesExcludeConstraints(
 	});
 }
 
-function splitFffQuery(text: string): {
+export function splitFffQuery(text: string): {
 	constraints: string[];
 	content: string;
 } {
@@ -401,6 +396,22 @@ function splitFffQuery(text: string): {
 	return {
 		constraints,
 		content: tokens.join(' '),
+	};
+}
+
+export function splitFffFilter(filter: FilterQuery): {
+	constraints: string[];
+	content: string;
+} {
+	const split = splitFffQuery(filter.text);
+	return {
+		constraints: split.constraints,
+		content: filter.useRegex
+			? split.content
+			: split.content
+				.split(/\s+/)
+				.map(unescapeConstraintToken)
+				.join(' '),
 	};
 }
 

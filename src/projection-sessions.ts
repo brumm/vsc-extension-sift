@@ -8,7 +8,8 @@ import {
 export type ProjectionTarget =
 	| { kind: 'file'; sourceUri: string }
 	| { kind: 'project'; rootUri: string }
-	| { kind: 'paths'; rootUri: string };
+	| { kind: 'paths'; rootUri: string }
+	| { kind: 'diff'; rootUri: string; baseRef?: string };
 
 export interface ProjectionSessionDescriptor {
 	id: string;
@@ -24,7 +25,7 @@ export interface SessionPersistence {
 
 interface LegacyStoredSession {
 	id: string;
-	kind?: 'file' | 'project' | 'paths';
+	kind?: 'file' | 'project' | 'paths' | 'diff';
 	sourceUri?: string;
 	rootUri?: string;
 	query?: string;
@@ -331,7 +332,7 @@ export class ProjectionSessions {
 				: session.target.rootUri;
 			const content = session.target.kind === 'file'
 				? `Source is unavailable:\n${targetUri}\n\n${message}`
-				: `${session.target.kind === 'paths' ? 'Path' : 'Project'} search failed:\n${targetUri}\n\n${message}`;
+				: `${session.target.kind === 'paths' ? 'Path search' : session.target.kind === 'diff' ? 'Diff' : 'Project search'} failed:\n${targetUri}\n\n${message}`;
 			if (
 				!session.failRefresh(
 					start.revision,
@@ -391,6 +392,17 @@ function normalizeStoredSessions(
 					: candidate.target.kind === 'paths' &&
 						typeof candidate.target.rootUri === 'string'
 						? { kind: 'paths' as const, rootUri: candidate.target.rootUri }
+					: candidate.target.kind === 'diff' &&
+						typeof candidate.target.rootUri === 'string' &&
+						(
+							candidate.target.baseRef === undefined ||
+							typeof candidate.target.baseRef === 'string'
+						)
+						? {
+							kind: 'diff' as const,
+							rootUri: candidate.target.rootUri,
+							baseRef: candidate.target.baseRef,
+						}
 					: undefined;
 			if (!target) {
 				return [];
@@ -403,7 +415,7 @@ function normalizeStoredSessions(
 			}];
 		}
 
-		const target = candidate.kind === 'project' || candidate.kind === 'paths'
+		const target = candidate.kind === 'project' || candidate.kind === 'paths' || candidate.kind === 'diff'
 			? typeof candidate.rootUri === 'string'
 				? { kind: candidate.kind, rootUri: candidate.rootUri }
 				: undefined

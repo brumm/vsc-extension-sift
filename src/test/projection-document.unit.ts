@@ -198,6 +198,95 @@ test('project projection owns mapped and annotation rows together', () => {
 	);
 });
 
+test('diff projection filters current lines and maps them to editable sources', () => {
+	const projection = ProjectionDocument.forDiff([{
+		uri: 'file:///workspace/src/a.ts',
+		relativePath: 'src/a.ts',
+		status: 'modified',
+		lines: [
+			{ kind: 'deleted', line: 4, text: 'old value' },
+			{ kind: 'added', line: 4, text: 'new needle' },
+			{ kind: 'added', line: 8, text: 'other value' },
+		],
+	}], {
+		text: 'needle',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	});
+
+	assert.equal(projection.content, '\nnew needle');
+	assert.deepEqual(projection.sourceAt(1, 3), {
+		uri: 'file:///workspace/src/a.ts',
+		line: 4,
+		character: 3,
+	});
+	assert.deepEqual(projection.planSave('\nnew changed'), {
+		ok: true,
+		edits: [{
+			uri: 'file:///workspace/src/a.ts',
+			line: 4,
+			before: 'new needle',
+			after: 'new changed',
+		}],
+	});
+});
+
+test('diff projection shows renames and rejects edits to deleted annotations', () => {
+	const projection = ProjectionDocument.forDiff([{
+		uri: 'file:///workspace/new.ts',
+		relativePath: 'new.ts',
+		previousPath: 'old.ts',
+		status: 'renamed',
+		lines: [],
+	}, {
+		relativePath: 'gone.ts',
+		status: 'deleted',
+		lines: [{ kind: 'deleted', line: 2, text: 'removed' }],
+	}], {
+		text: '',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	});
+
+	assert.equal(projection.content, '\n\n\nremoved');
+	assert.deepEqual(projection.sourceAt(0, 0), {
+		uri: 'file:///workspace/new.ts',
+		line: 0,
+		character: 0,
+	});
+	assert.deepEqual(projection.planSave('\n\n\nchanged'), {
+		ok: false,
+		message: 'Annotation rows cannot be edited.',
+	});
+});
+
+test('diff projection marks later visible hunk boundaries', () => {
+	const projection = ProjectionDocument.forDiff([{
+		uri: 'file:///workspace/a.ts',
+		relativePath: 'a.ts',
+		status: 'modified',
+		lines: [
+			{ kind: 'added', line: 1, text: 'first', hunk: 0 },
+			{ kind: 'deleted', line: 8, text: 'old second', hunk: 1 },
+			{ kind: 'added', line: 8, text: 'second', hunk: 1 },
+		],
+	}], {
+		text: '',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	});
+
+	assert.equal(projection.rows[1]?.hunkStart, false);
+	assert.equal(projection.rows[2]?.hunkStart, true);
+	assert.equal(projection.rows[3]?.hunkStart, false);
+});
+
 test('path projection maps editable relative paths to source files', () => {
 	const projection = ProjectionDocument.forPaths([
 		{ uri: 'file:///workspace/src/one.ts', relativePath: 'src/one.ts' },

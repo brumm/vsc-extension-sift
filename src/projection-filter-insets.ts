@@ -233,7 +233,9 @@ function filterInsetHtml(
       ? 'Sift Project'
       : session.target.kind === 'paths'
         ? 'Sift Paths'
-        : 'Sift Editor'
+        : session.target.kind === 'diff'
+          ? 'Sift Diff'
+          : 'Sift Editor'
   const projectSearchButton =
     session.target.kind === 'file'
       ? `<button type="button" data-action="search-project" title="Sift Project" aria-label="Sift Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
