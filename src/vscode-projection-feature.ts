@@ -1109,6 +1109,28 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }
   }
 
+  const useSelectionAsQuery = async (): Promise<void> => {
+    const editor = vscode.window.activeTextEditor
+    const session = activeSession(sessions)
+    if (!editor || !session) {
+      return
+    }
+    const text = editor.document.getText(editor.selection)
+    if (text.length > 0 && text !== session.filter.text) {
+      runtimeFor(session).holdPathResults = false
+      await sessions.execute(session.id, {
+        kind: 'update-filter',
+        filter: { ...session.filter, text },
+      })
+      filterInsets.sync(session)
+      scheduleRefresh(session, {
+        force: true,
+        preserveEditorState: false,
+      })
+    }
+    focusQueryInput()
+  }
+
   provider.setWriteHandler(async (uri, content) => {
     const session = sessions.get(sessionId(uri))
     if (!session) {
@@ -1454,6 +1476,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     vscode.commands.registerCommand(
       'sift.focusQueryInput',
       focusQueryInput,
+    ),
+    vscode.commands.registerCommand(
+      'sift.useSelectionAsQuery',
+      useSelectionAsQuery,
     ),
     vscode.commands.registerCommand('sift.close', async () => {
       const session = activeSession(sessions)

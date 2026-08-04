@@ -75,6 +75,10 @@
       {
         "command": "sift.siftDiffAgainst",
         "title": "Sift: Diff Against…"
+      },
+      {
+        "command": "sift.useSelectionAsQuery",
+        "title": "Sift: Use Selection as Query"
       }
     ],
     "keybindings": [
@@ -96,6 +100,12 @@
       {
         "command": "sift.openSource",
         "key": "enter",
+        "when": "resourceScheme == sift-editor && editorTextFocus"
+      },
+      {
+        "command": "sift.useSelectionAsQuery",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
         "when": "resourceScheme == sift-editor && editorTextFocus"
       },
       {

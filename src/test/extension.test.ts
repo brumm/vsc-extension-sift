@@ -59,6 +59,20 @@ suite('Extension Test Suite', () => {
 		));
 	});
 
+	test('Find uses the current SIFT selection as the query', () => {
+		const extension = vscode.extensions.getExtension(extensionId);
+		assert.ok(extension);
+		const keybindings = extension.packageJSON.contributes?.keybindings as
+			| { command?: string; key?: string; mac?: string; when?: string }[]
+			| undefined;
+		assert.ok(keybindings?.some(keybinding =>
+			keybinding.command === 'sift.useSelectionAsQuery' &&
+			keybinding.key === 'ctrl+f' &&
+			keybinding.mac === 'cmd+f' &&
+			keybinding.when?.includes('resourceScheme == sift-editor'),
+		));
+	});
+
 	test('path save moves a file and removes its empty source folder', async () => {
 		const rootPath = await mkdtemp(join(tmpdir(), 'sift-path-save-'));
 		try {
