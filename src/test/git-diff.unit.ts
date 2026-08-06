@@ -53,16 +53,57 @@ test('uses an explicitly selected diff base', async () => {
 	assert.equal(runner.calls.length, 1);
 });
 
-test('lists HEAD first for a current working-tree comparison', async () => {
-	const runner = new StubGitRunner(() =>
-		'origin/main\nfeature\norigin/HEAD\nv1.0\nfeature\n');
+test('groups diff refs and finds base and upstream branches', async () => {
+	const runner = new StubGitRunner(args => {
+		switch (args[0]) {
+			case 'for-each-ref':
+				return [
+					'refs/remotes/origin/main',
+					'refs/heads/release',
+					'refs/heads/main',
+					'refs/heads/feature',
+					'refs/remotes/origin/HEAD',
+					'refs/tags/v1.0',
+					'refs/heads/feature',
+				].join('\n');
+			case 'symbolic-ref':
+				return 'feature\n';
+			case 'reflog':
+				return [
+					'checkout: moving from release to feature',
+					'checkout: moving from main to feature',
+				].join('\n');
+			case 'rev-parse':
+				return 'origin/main\n';
+			default:
+				throw new Error(`Unexpected Git command: ${args.join(' ')}`);
+		}
+	});
 
-	assert.deepEqual(await listDiffBaseRefs(runner, '/repo'), [
-		'HEAD',
-		'feature',
-		'origin/main',
-		'v1.0',
-	]);
+	assert.deepEqual(await listDiffBaseRefs(runner, '/repo'), {
+		baseBranch: 'main',
+		upstreamBranch: 'origin/main',
+		localBranches: ['feature', 'main', 'release'],
+		remoteBranches: ['origin/main'],
+		tags: ['v1.0'],
+	});
+});
+
+test('omits unavailable diff base hints', async () => {
+	const runner = new StubGitRunner(args => {
+		if (args[0] === 'for-each-ref') {
+			return 'refs/heads/main\n';
+		}
+		throw new Error('Ref hint is unavailable');
+	});
+
+	assert.deepEqual(await listDiffBaseRefs(runner, '/repo'), {
+		baseBranch: undefined,
+		upstreamBranch: undefined,
+		localBranches: ['main'],
+		remoteBranches: [],
+		tags: [],
+	});
 });
 
 test('adapts additions, deletions, and current line numbers', () => {

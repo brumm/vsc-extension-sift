@@ -20,6 +20,14 @@ export interface ResolvedDiffBase {
 	mergeBase: string;
 }
 
+export interface DiffBaseRefs {
+	baseBranch?: string;
+	upstreamBranch?: string;
+	localBranches: string[];
+	remoteBranches: string[];
+	tags: string[];
+}
+
 export async function resolveDiffBase(
 	runner: GitRunner,
 	rootPath: string,
@@ -40,18 +48,99 @@ export async function resolveDiffBase(
 export async function listDiffBaseRefs(
 	runner: GitRunner,
 	rootPath: string,
-): Promise<string[]> {
+): Promise<DiffBaseRefs> {
 	const output = await runner.run(rootPath, [
 		'for-each-ref',
-		'--format=%(refname:short)',
+		'--format=%(refname)',
 		'refs/heads',
 		'refs/remotes',
 		'refs/tags',
 	]);
-	const refs = [...new Set(output.split('\n').map(value => value.trim()).filter(
-		value => value && !value.endsWith('/HEAD'),
-	))].sort((left, right) => left.localeCompare(right));
-	return ['HEAD', ...refs];
+	const fullRefs = output.split('\n').map(value => value.trim()).filter(Boolean);
+	const localBranches = sortedUnique(fullRefs.flatMap(ref =>
+		ref.startsWith('refs/heads/') ? [ref.slice('refs/heads/'.length)] : [],
+	));
+	const remoteBranches = sortedUnique(fullRefs.flatMap(ref =>
+		ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')
+			? [ref.slice('refs/remotes/'.length)]
+			: [],
+	));
+	const tags = sortedUnique(fullRefs.flatMap(ref =>
+		ref.startsWith('refs/tags/') ? [ref.slice('refs/tags/'.length)] : [],
+	));
+	const branchRefs = new Set([...localBranches, ...remoteBranches]);
+	const [baseBranch, upstreamBranch] = await Promise.all([
+		inferBaseBranch(runner, rootPath, branchRefs),
+		readOptionalRef(runner, rootPath, [
+			'rev-parse',
+			'--abbrev-ref',
+			'--symbolic-full-name',
+			'@{upstream}',
+		]),
+	]);
+
+	return {
+		baseBranch,
+		upstreamBranch: upstreamBranch && remoteBranches.includes(upstreamBranch)
+			? upstreamBranch
+			: undefined,
+		localBranches,
+		remoteBranches,
+		tags,
+	};
+}
+
+async function inferBaseBranch(
+	runner: GitRunner,
+	rootPath: string,
+	branchRefs: ReadonlySet<string>,
+): Promise<string | undefined> {
+	const currentBranch = await readOptionalRef(runner, rootPath, [
+		'symbolic-ref',
+		'--quiet',
+		'--short',
+		'HEAD',
+	]);
+	if (!currentBranch) {
+		return undefined;
+	}
+	try {
+		const reflog = await runner.run(rootPath, [
+			'reflog',
+			'show',
+			'--format=%gs',
+			'HEAD',
+		]);
+		const candidates = reflog.split('\n').flatMap(message => {
+			const match = /^checkout: moving from (.+) to (.+)$/u.exec(message.trim());
+			return match?.[2] === currentBranch ? [normalizeBranchRef(match[1])] : [];
+		});
+		return candidates.reverse().find(candidate =>
+			candidate !== currentBranch && branchRefs.has(candidate),
+		);
+	} catch {
+		return undefined;
+	}
+}
+
+async function readOptionalRef(
+	runner: GitRunner,
+	rootPath: string,
+	args: readonly string[],
+): Promise<string | undefined> {
+	try {
+		return (await runner.run(rootPath, args)).trim() || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function normalizeBranchRef(ref: string): string {
+	return ref.replace(/^refs\/(?:heads|remotes)\//u, '');
+}
+
+function sortedUnique(values: readonly string[]): string[] {
+	return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 export async function loadWorkingTreeDiff(

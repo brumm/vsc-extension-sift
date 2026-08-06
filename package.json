@@ -70,7 +70,11 @@
       },
       {
         "command": "sift.siftDiff",
-        "title": "Sift: Diff"
+        "title": "Sift: Diff Against HEAD"
+      },
+      {
+        "command": "sift.siftDiffAgainstBaseBranch",
+        "title": "Sift: Diff Against Base Branch"
       },
       {
         "command": "sift.siftDiffAgainst",

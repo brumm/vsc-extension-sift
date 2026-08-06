@@ -1427,7 +1427,55 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           : ''
         await openDiff(
           workspaceFolder,
-          undefined,
+          'HEAD',
+          initialQuery,
+          sourceEditor?.viewColumn,
+        )
+      },
+    ),
+    vscode.commands.registerCommand(
+      'sift.siftDiffAgainstBaseBranch',
+      async () => {
+        const sourceEditor = vscode.window.activeTextEditor
+        const activeDocument = sourceEditor?.document.uri.scheme === scheme
+          ? undefined
+          : sourceEditor?.document
+        const { workspaceFolder, sourceDocument } = selectProjectWorkspace(
+          activeDocument,
+          (document) => vscode.workspace.getWorkspaceFolder(document.uri),
+          vscode.workspace.workspaceFolders,
+          (folder) => folder.uri.scheme === 'file',
+        )
+        if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+          void vscode.window.showWarningMessage(
+            'Open a local workspace folder before opening a Sift diff.',
+          )
+          return
+        }
+        let baseBranch: string | undefined
+        try {
+          baseBranch = (await listDiffBaseRefs(
+            gitRunner,
+            workspaceFolder.uri.fsPath,
+          )).baseBranch
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            `Could not inspect Git refs: ${error instanceof Error ? error.message : String(error)}`,
+          )
+          return
+        }
+        if (!baseBranch) {
+          void vscode.window.showWarningMessage(
+            'Git reflog does not identify a base branch for the current branch.',
+          )
+          return
+        }
+        const initialQuery = sourceEditor && sourceDocument
+          ? sourceDocument.getText(sourceEditor.selections[0])
+          : ''
+        await openDiff(
+          workspaceFolder,
+          baseBranch,
           initialQuery,
           sourceEditor?.viewColumn,
         )
@@ -1452,7 +1500,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           )
           return
         }
-        let refs: string[]
+        let refs: Awaited<ReturnType<typeof listDiffBaseRefs>>
         try {
           refs = await listDiffBaseRefs(gitRunner, workspaceFolder.uri.fsPath)
         } catch (error) {
@@ -1463,34 +1511,61 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         }
         const rootKey = workspaceFolder.uri.toString()
         const remembered = rememberedDiffBases[rootKey]
-        if (remembered && remembered !== 'HEAD' && refs.includes(remembered)) {
-          refs = ['HEAD', remembered, ...refs.filter(
-            ref => ref !== 'HEAD' && ref !== remembered,
-          )]
+        type DiffBaseItem = vscode.QuickPickItem & { ref?: string }
+        const item = (
+          ref: string,
+          description: string | undefined,
+          icon: 'cloud' | 'git-branch' | 'git-commit' | 'tag',
+        ): DiffBaseItem => ({
+          label: `$(${icon}) ${ref}`,
+          description: [description, ref === remembered ? 'Last used' : undefined]
+            .filter(Boolean)
+            .join(' · ') || undefined,
+          ref,
+        })
+        const items: DiffBaseItem[] = [item('HEAD', 'Current commit', 'git-commit')]
+        if (refs.baseBranch) {
+          items.push(item(
+            refs.baseBranch,
+            'Base branch',
+            refs.remoteBranches.includes(refs.baseBranch) ? 'cloud' : 'git-branch',
+          ))
         }
+        if (refs.upstreamBranch) {
+          items.push(item(refs.upstreamBranch, 'Upstream branch', 'cloud'))
+        }
+        const addGroup = (
+          label: string,
+          group: readonly string[],
+          icon: 'cloud' | 'git-branch' | 'tag',
+        ): void => {
+          if (group.length === 0) {
+            return
+          }
+          items.push({ label, kind: vscode.QuickPickItemKind.Separator })
+          items.push(...group.map(ref => item(ref, undefined, icon)))
+        }
+        addGroup('Local branches', refs.localBranches, 'git-branch')
+        addGroup('Remote branches', refs.remoteBranches, 'cloud')
+        addGroup('Tags', refs.tags, 'tag')
         const selected = await vscode.window.showQuickPick(
-          refs.map(ref => ({
-            label: ref,
-            description: ref === 'HEAD'
-              ? 'Current commit'
-              : ref === remembered ? 'Last used' : undefined,
-          })),
+          items,
           {
             title: 'Sift: Diff Against…',
             placeHolder: 'Choose a local branch, remote branch, or tag',
           },
         )
-        if (!selected) {
+        if (!selected?.ref) {
           return
         }
-        rememberedDiffBases[rootKey] = selected.label
+        rememberedDiffBases[rootKey] = selected.ref
         await context.workspaceState.update(storedDiffBasesKey, rememberedDiffBases)
         const initialQuery = sourceEditor && sourceDocument
           ? sourceDocument.getText(sourceEditor.selections[0])
           : ''
         await openDiff(
           workspaceFolder,
-          selected.label,
+          selected.ref,
           initialQuery,
           sourceEditor?.viewColumn,
         )
