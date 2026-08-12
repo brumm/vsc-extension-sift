@@ -9,7 +9,7 @@ export type ProjectionTarget =
 	| { kind: 'file'; sourceUri: string }
 	| { kind: 'project'; rootUri: string }
 	| { kind: 'paths'; rootUri: string }
-	| { kind: 'diff'; rootUri: string; baseRef?: string };
+	| { kind: 'diff'; rootUri: string; baseRef?: string; commitRef?: string };
 
 export interface ProjectionSessionDescriptor {
 	id: string;
@@ -50,6 +50,7 @@ export type ProjectionAction =
 	| { kind: 'refresh'; dirty: boolean }
 	| { kind: 'working-copy-changed' }
 	| { kind: 'update-filter'; filter: FilterQuery }
+	| { kind: 'update-target'; target: ProjectionTarget }
 	| {
 		kind: 'save-completed';
 		workingCopy: string;
@@ -148,6 +149,14 @@ export class ProjectionSession {
 		this.invalidateRefresh();
 	}
 
+	updateTarget(target: ProjectionTarget): void {
+		this.descriptorValue = {
+			...this.descriptorValue,
+			target: { ...target },
+		};
+		this.invalidateRefresh();
+	}
+
 	setLanguageId(languageId: string): void {
 		this.descriptorValue = { ...this.descriptorValue, languageId };
 	}
@@ -239,6 +248,7 @@ export class ProjectionSession {
 
 export class ProjectionSessions {
 	private readonly sessions = new Map<string, ProjectionSession>();
+	private readonly transientIds = new Set<string>();
 
 	constructor(
 		private readonly persistence: SessionPersistence,
@@ -249,9 +259,15 @@ export class ProjectionSessions {
 		}
 	}
 
-	open(descriptor: ProjectionSessionDescriptor): ProjectionSession {
+	open(
+		descriptor: ProjectionSessionDescriptor,
+		options: { transient?: boolean } = {},
+	): ProjectionSession {
 		const session = new ProjectionSession(descriptor);
 		this.sessions.set(descriptor.id, session);
+		if (options.transient) {
+			this.transientIds.add(descriptor.id);
+		}
 		return session;
 	}
 
@@ -278,6 +294,9 @@ export class ProjectionSessions {
 				return { kind: 'updated' };
 			case 'update-filter':
 				session.updateFilter(action.filter);
+				return { kind: 'updated' };
+			case 'update-target':
+				session.updateTarget(action.target);
 				return { kind: 'updated' };
 			case 'rename-source':
 				session.renameSource(action.sourceUri);
@@ -319,7 +338,9 @@ export class ProjectionSessions {
 			if (build.languageId) {
 				session.setLanguageId(build.languageId);
 			}
-			await this.persist();
+			if (!this.transientIds.has(session.id)) {
+				await this.persist();
+			}
 			return {
 				kind: 'refreshed',
 				revision: start.revision,
@@ -352,16 +373,29 @@ export class ProjectionSessions {
 
 	async persist(): Promise<void> {
 		await this.persistence.save(
-			[...this.sessions.values()].map(session => session.descriptor),
+			[...this.sessions.values()]
+				.filter(session => !this.transientIds.has(session.id))
+				.map(session => session.descriptor),
 		);
+	}
+
+	async promote(id: string): Promise<boolean> {
+		if (!this.sessions.has(id) || !this.transientIds.delete(id)) {
+			return false;
+		}
+		await this.persist();
+		return true;
 	}
 
 	async close(id: string): Promise<void> {
 		const session = this.sessions.get(id);
 		if (session) {
+			const transient = this.transientIds.delete(id);
 			session.dispose();
 			this.sessions.delete(id);
-			await this.persist();
+			if (!transient) {
+				await this.persist();
+			}
 		}
 	}
 }
@@ -397,11 +431,20 @@ function normalizeStoredSessions(
 						(
 							candidate.target.baseRef === undefined ||
 							typeof candidate.target.baseRef === 'string'
+						) &&
+						(
+							candidate.target.commitRef === undefined ||
+							typeof candidate.target.commitRef === 'string'
 						)
 						? {
 							kind: 'diff' as const,
 							rootUri: candidate.target.rootUri,
-							baseRef: candidate.target.baseRef,
+							...(candidate.target.baseRef === undefined
+								? {}
+								: { baseRef: candidate.target.baseRef }),
+							...(candidate.target.commitRef === undefined
+								? {}
+								: { commitRef: candidate.target.commitRef }),
 						}
 					: undefined;
 			if (!target) {

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	adaptParsedDiff,
+	loadCommitDiff,
 	loadWorkingTreeDiff,
 	listDiffBaseRefs,
+	listRecentCommits,
 	resolveDiffBase,
 } from '../git-diff';
 import { GitRunOptions, GitRunner } from '../git-process';
@@ -104,6 +106,76 @@ test('omits unavailable diff base hints', async () => {
 		remoteBranches: [],
 		tags: [],
 	});
+});
+
+test('lists recent commits with display metadata', async () => {
+	const runner = new StubGitRunner(args => {
+		assert.deepEqual(args, [
+			'log',
+			'HEAD',
+			'--first-parent',
+			'--max-count=25',
+			'--format=%H%x1f%h%x1f%s%x1f%an%x1f%ar%x1e',
+		]);
+		return [
+			'abcdef123456\x1fabcdef1\x1fAdd commit picker\x1fAda Lovelace\x1f2 hours ago\x1e',
+			'\n123456abcdef\x1f123456a\x1fFix rename handling\x1fGrace Hopper\x1fyesterday\x1e',
+		].join('');
+	});
+
+	assert.deepEqual(await listRecentCommits(runner, '/repo', 25), [
+		{
+			ref: 'abcdef123456',
+			shortSha: 'abcdef1',
+			message: 'Add commit picker',
+			author: 'Ada Lovelace',
+			relativeDate: '2 hours ago',
+		},
+		{
+			ref: '123456abcdef',
+			shortSha: '123456a',
+			message: 'Fix rename handling',
+			author: 'Grace Hopper',
+			relativeDate: 'yesterday',
+		},
+	]);
+});
+
+test('loads a commit patch against its first parent', async () => {
+	const runner = new StubGitRunner(args => {
+		assert.deepEqual(args, [
+			'-c',
+			'core.quotePath=false',
+			'diff-tree',
+			'--root',
+			'--no-commit-id',
+			'--diff-merges=first-parent',
+			'-r',
+			'-p',
+			'--find-renames',
+			'--unified=0',
+			'abcdef123456',
+			'--',
+		]);
+		return `diff --git a/file.ts b/file.ts
+index 1111111..2222222 100644
+--- a/file.ts
++++ b/file.ts
+@@ -1 +1 @@
+-old
++new
+`;
+	});
+
+	assert.deepEqual(await loadCommitDiff(runner, '/repo', 'abcdef123456'), [{
+		relativePath: 'file.ts',
+		previousPath: undefined,
+		status: 'modified',
+		lines: [
+			{ kind: 'deleted', line: 0, text: 'old', hunk: 0 },
+			{ kind: 'added', line: 0, text: 'new', hunk: 0 },
+		],
+	}]);
 });
 
 test('adapts additions, deletions, and current line numbers', () => {

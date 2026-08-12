@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 import * as vscode from 'vscode'
-import { listDiffBaseRefs } from './git-diff'
+import { listDiffBaseRefs, listRecentCommits } from './git-diff'
 import { GitProcessRunner } from './git-process'
 import { FffProjectSearch } from './project-search'
 import { selectProjectWorkspace } from './project-workspace'
@@ -797,6 +797,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     session: ProjectionSession,
     focusFilterInput = false,
     viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
+    showOptions: Pick<
+      vscode.TextDocumentShowOptions,
+      'preview' | 'preserveFocus'
+    > = {},
   ): Promise<boolean> => {
     const document = await vscode.workspace.openTextDocument(runtimeFor(session).virtualUri)
     const displayLanguageId = projectionLanguageId(session.languageId)
@@ -809,7 +813,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           )
     const editor = await vscode.window.showTextDocument(languageDocument, {
       viewColumn,
-      preview: false,
+      preview: showOptions.preview ?? false,
+      preserveFocus: showOptions.preserveFocus,
     })
     await disableWordWrap(editor)
     decorateEditor(editor)
@@ -890,6 +895,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     baseRef?: string,
     initialQuery = '',
     sourceViewColumn?: vscode.ViewColumn,
+    commitRef?: string,
   ): Promise<void> => {
     const session = sessions.open({
       id: randomUUID(),
@@ -897,6 +903,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         kind: 'diff',
         rootUri: workspaceFolder.uri.toString(),
         baseRef,
+        commitRef,
       },
       filter: {
         text: initialQuery,
@@ -1563,18 +1570,218 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         const initialQuery = sourceEditor && sourceDocument
           ? sourceDocument.getText(sourceEditor.selections[0])
           : ''
-        await openDiff(
-          workspaceFolder,
-          selected.ref,
-          initialQuery,
-          sourceEditor?.viewColumn,
+      await openDiff(
+        workspaceFolder,
+        selected.ref,
+        initialQuery,
+        sourceEditor?.viewColumn,
+      )
+    }),
+    vscode.commands.registerCommand('sift.siftCommit', async () => {
+      const sourceEditor = vscode.window.activeTextEditor
+      const activeDocument =
+        sourceEditor?.document.uri.scheme === scheme
+          ? undefined
+          : sourceEditor?.document
+      const { workspaceFolder, sourceDocument } = selectProjectWorkspace(
+        activeDocument,
+        (document) => vscode.workspace.getWorkspaceFolder(document.uri),
+        vscode.workspace.workspaceFolders,
+        (folder) => folder.uri.scheme === 'file',
+      )
+      if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+        void vscode.window.showWarningMessage(
+          'Open a local workspace folder before opening a Sift commit.',
         )
-      },
-    ),
-    vscode.commands.registerCommand(
-      'sift.focusQueryInput',
-      focusQueryInput,
-    ),
+        return
+      }
+      let commits: Awaited<ReturnType<typeof listRecentCommits>>
+      try {
+        commits = await listRecentCommits(
+          gitRunner,
+          workspaceFolder.uri.fsPath,
+        )
+      } catch (error) {
+        void vscode.window.showErrorMessage(
+          `Could not list Git commits: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return
+      }
+      if (commits.length === 0) {
+        void vscode.window.showWarningMessage(
+          'The current branch has no commits to sift.',
+        )
+        return
+      }
+      type CommitItem = vscode.QuickPickItem & { ref: string }
+      const items: CommitItem[] = commits.map((commit) => ({
+        label: `$(git-commit) ${commit.shortSha} ${commit.message}`,
+        description: commit.relativeDate,
+        detail: commit.author,
+        ref: commit.ref,
+      }))
+      const initialQuery =
+        sourceEditor && sourceDocument
+          ? sourceDocument.getText(sourceEditor.selections[0])
+          : ''
+      const previewSession = sessions.open({
+        id: randomUUID(),
+        target: {
+          kind: 'diff',
+          rootUri: workspaceFolder.uri.toString(),
+          commitRef: items[0].ref,
+        },
+        filter: {
+          text: initialQuery,
+          matchCase: false,
+          wholeWord: false,
+          useRegex: false,
+          contextLines: 0,
+        },
+        languageId: 'plaintext',
+      }, { transient: true })
+      runtimeFor(previewSession).sourceViewColumn =
+        sourceEditor?.viewColumn ??
+        vscode.window.visibleTextEditors.find(
+          (editor) => editor.document.uri.scheme !== scheme,
+        )?.viewColumn ??
+        vscode.ViewColumn.One
+
+      const picker = vscode.window.createQuickPick<CommitItem>()
+      picker.title = 'Sift: Commit…'
+      picker.placeholder = 'Choose a recent commit on the current branch'
+      picker.matchOnDescription = true
+      picker.matchOnDetail = true
+      picker.items = items
+
+      let acceptedItem: CommitItem | undefined
+      let previewVisible = false
+      let previewGeneration = 0
+      let previewTimer: NodeJS.Timeout | undefined
+      const previewCommit = async (commit: CommitItem): Promise<boolean> => {
+        const generation = ++previewGeneration
+        picker.busy = true
+        try {
+          await sessions.execute(previewSession.id, {
+            kind: 'update-target',
+            target: {
+              kind: 'diff',
+              rootUri: workspaceFolder.uri.toString(),
+              commitRef: commit.ref,
+            },
+          })
+          await refresh(previewSession, false)
+          if (
+            generation !== previewGeneration ||
+            !sessions.get(previewSession.id)
+          ) {
+            return false
+          }
+          if (!previewVisible) {
+            await showSession(
+              previewSession,
+              false,
+              vscode.ViewColumn.Beside,
+              { preview: true, preserveFocus: true },
+            )
+            if (
+              generation !== previewGeneration ||
+              !sessions.get(previewSession.id)
+            ) {
+              return false
+            }
+            previewVisible = true
+          }
+          return true
+        } catch (error) {
+          if (generation === previewGeneration) {
+            void vscode.window.showErrorMessage(
+              `Could not preview Git commit: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+          return false
+        } finally {
+          if (generation === previewGeneration) {
+            picker.busy = false
+          }
+        }
+      }
+      const schedulePreview = (commit: CommitItem): void => {
+        if (previewTimer) {
+          clearTimeout(previewTimer)
+        }
+        previewTimer = setTimeout(() => {
+          previewTimer = undefined
+          void previewCommit(commit)
+        }, 100)
+      }
+      const discardPreview = async (): Promise<void> => {
+        previewGeneration += 1
+        if (previewTimer) {
+          clearTimeout(previewTimer)
+          previewTimer = undefined
+        }
+        const previewUri = runtimeFor(previewSession).virtualUri
+        const previewTab = vscode.window.tabGroups.all
+          .flatMap((group) => group.tabs)
+          .find(
+            (tab) =>
+              tab.input instanceof vscode.TabInputText &&
+              tab.input.uri.toString() === previewUri.toString(),
+          )
+        if (previewTab) {
+          await vscode.window.tabGroups.close(previewTab, true)
+        }
+        closeSession(previewUri)
+      }
+      const selected = await new Promise<CommitItem | undefined>((resolve) => {
+        picker.onDidChangeActive(([commit]) => {
+          if (commit) {
+            schedulePreview(commit)
+          }
+        })
+        picker.onDidAccept(() => {
+          acceptedItem = picker.selectedItems[0] ?? picker.activeItems[0]
+          picker.hide()
+        })
+        picker.onDidHide(() => resolve(acceptedItem))
+        picker.show()
+        picker.activeItems = [items[0]]
+        if (previewTimer) {
+          clearTimeout(previewTimer)
+          previewTimer = undefined
+        }
+        void previewCommit(items[0])
+      })
+      if (previewTimer) {
+        clearTimeout(previewTimer)
+      }
+      if (!selected) {
+        await discardPreview()
+        picker.dispose()
+        return
+      }
+      if (!(await previewCommit(selected))) {
+        await discardPreview()
+        picker.dispose()
+        return
+      }
+      picker.dispose()
+      if (!(await sessions.promote(previewSession.id))) {
+        await discardPreview()
+        return
+      }
+      const hasInset = await showSession(
+        previewSession,
+        true,
+        vscode.ViewColumn.Beside,
+        { preview: false },
+      )
+      if (!hasInset) {
+        showFilterInput(previewSession)
+      }
+    }),
+    vscode.commands.registerCommand('sift.focusQueryInput', focusQueryInput),
     vscode.commands.registerCommand(
       'sift.useSelectionAsQuery',
       useSelectionAsQuery,

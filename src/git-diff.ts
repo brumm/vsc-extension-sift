@@ -28,6 +28,36 @@ export interface DiffBaseRefs {
 	tags: string[];
 }
 
+export interface RecentCommit {
+	ref: string;
+	shortSha: string;
+	message: string;
+	author: string;
+	relativeDate: string;
+}
+
+export async function listRecentCommits(
+	runner: GitRunner,
+	rootPath: string,
+	limit = 50,
+): Promise<RecentCommit[]> {
+	const output = await runner.run(rootPath, [
+		'log',
+		'HEAD',
+		'--first-parent',
+		`--max-count=${limit}`,
+		'--format=%H%x1f%h%x1f%s%x1f%an%x1f%ar%x1e',
+	]);
+	return output.split('\x1e').flatMap(record => {
+		const [ref, shortSha, message, author, relativeDate] = record
+			.trim()
+			.split('\x1f');
+		return ref && shortSha && message && author && relativeDate
+			? [{ ref, shortSha, message, author, relativeDate }]
+			: [];
+	});
+}
+
 export async function resolveDiffBase(
 	runner: GitRunner,
 	rootPath: string,
@@ -180,6 +210,28 @@ export async function loadWorkingTreeDiff(
 		], { acceptedExitCodes: [1] }),
 	));
 	return adaptParsedDiff(`${tracked}${untrackedDiffs.join('')}`);
+}
+
+export async function loadCommitDiff(
+	runner: GitRunner,
+	rootPath: string,
+	commitRef: string,
+): Promise<GitDiffFile[]> {
+	const output = await runner.run(rootPath, [
+		'-c',
+		'core.quotePath=false',
+		'diff-tree',
+		'--root',
+		'--no-commit-id',
+		'--diff-merges=first-parent',
+		'-r',
+		'-p',
+		'--find-renames',
+		'--unified=0',
+		commitRef,
+		'--',
+	]);
+	return adaptParsedDiff(output);
 }
 
 export function adaptParsedDiff(unifiedDiff: string): GitDiffFile[] {

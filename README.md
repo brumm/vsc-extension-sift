@@ -7,6 +7,7 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 - Review and edit working-tree changes against the current commit with **Sift: Diff Against HEAD**.
 - Open the inferred reflog comparison directly with **Sift: Diff Against Base Branch**.
 - Choose the inferred base branch, upstream branch, or a grouped local branch, remote branch, or tag with **Sift: Diff Against…**.
+- Browse recent commits on the current branch and sift a commit's changed files with **Sift: Commit…**.
 - Refine results from an inline query input with match-case, whole-word, and regular-expression options.
 - Include up to five surrounding context lines while highlighting only the actual matches.
 - Scope project queries with leading path constraints such as `*.ts`, `src/`, and `!test/`.

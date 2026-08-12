@@ -6,6 +6,7 @@ import {
 	ProjectionBuilder,
 	ProjectionSessionDescriptor,
 	ProjectionSessions,
+	ProjectionTarget,
 	SessionPersistence,
 } from '../projection-sessions';
 
@@ -28,6 +29,20 @@ class DeferredBuilder implements ProjectionBuilder {
 
 	resolve(build: ProjectionBuild): void {
 		this.resolveBuild?.(build);
+	}
+}
+
+class TargetDeferredBuilder implements ProjectionBuilder {
+	readonly targets: ProjectionTarget[] = [];
+	private readonly resolvers: ((build: ProjectionBuild) => void)[] = [];
+
+	build(target: ProjectionTarget): Promise<ProjectionBuild> {
+		this.targets.push(target);
+		return new Promise(resolve => this.resolvers.push(resolve));
+	}
+
+	resolve(index: number, build: ProjectionBuild): void {
+		this.resolvers[index]?.(build);
 	}
 }
 
@@ -156,6 +171,81 @@ test('filter update makes an in-flight refresh stale', async () => {
 	assert.equal(session.languageId, 'typescript');
 });
 
+test('target update supersedes an in-flight transient refresh', async () => {
+	const builder = new TargetDeferredBuilder();
+	const sessions = new ProjectionSessions(new MemoryPersistence(), builder);
+	const session = sessions.open({
+		...descriptor,
+		target: {
+			kind: 'diff',
+			rootUri: 'file:///workspace',
+			commitRef: 'first',
+		},
+	}, { transient: true });
+	const firstRefresh = sessions.execute(session.id, {
+		kind: 'refresh',
+		dirty: false,
+	});
+
+	await sessions.execute(session.id, {
+		kind: 'update-target',
+		target: {
+			kind: 'diff',
+			rootUri: 'file:///workspace',
+			commitRef: 'second',
+		},
+	});
+	const secondRefresh = sessions.execute(session.id, {
+		kind: 'refresh',
+		dirty: false,
+	});
+	builder.resolve(0, { projection: ProjectionDocument.message('first') });
+	builder.resolve(1, { projection: ProjectionDocument.message('second') });
+
+	assert.deepEqual(await firstRefresh, { kind: 'stale' });
+	assert.equal((await secondRefresh).kind, 'refreshed');
+	assert.deepEqual(builder.targets.map(target =>
+		target.kind === 'diff' ? target.commitRef : undefined
+	), ['first', 'second']);
+	assert.equal(session.projection.content, 'second');
+});
+
+test('transient sessions persist only after promotion', async () => {
+	const persistence = new MemoryPersistence();
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('preview') }),
+	);
+	const session = sessions.open({
+		...descriptor,
+		target: {
+			kind: 'diff',
+			rootUri: 'file:///workspace',
+			commitRef: 'abcdef123456',
+		},
+	}, { transient: true });
+
+	await sessions.execute(session.id, { kind: 'refresh', dirty: false });
+	assert.deepEqual(persistence.stored, []);
+	assert.equal(persistence.saveCount, 0);
+	assert.equal(await sessions.promote(session.id), true);
+	assert.deepEqual(persistence.stored, [session.descriptor]);
+});
+
+test('closing a transient session does not touch persistence', async () => {
+	const persistence = new MemoryPersistence();
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+	const session = sessions.open(descriptor, { transient: true });
+
+	await sessions.close(session.id);
+
+	assert.equal(sessions.get(session.id), undefined);
+	assert.equal(persistence.saveCount, 0);
+});
+
 test('restoring sessions rejects an unknown target kind', () => {
 	const persistence = new MemoryPersistence();
 	persistence.stored = [{
@@ -226,6 +316,30 @@ test('restores a diff session with its selected base', () => {
 		kind: 'diff',
 		rootUri: 'file:///workspace',
 		baseRef: 'release',
+	});
+});
+
+test('restores a diff session for a selected commit', () => {
+	const persistence = new MemoryPersistence();
+	persistence.stored = [{
+		...descriptor,
+		target: {
+			kind: 'diff',
+			rootUri: 'file:///workspace',
+			commitRef: 'abcdef123456',
+		},
+		languageId: 'plaintext',
+	}];
+
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+
+	assert.deepEqual(sessions.get(descriptor.id)?.target, {
+		kind: 'diff',
+		rootUri: 'file:///workspace',
+		commitRef: 'abcdef123456',
 	});
 });
 

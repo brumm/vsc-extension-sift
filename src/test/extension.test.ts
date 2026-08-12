@@ -1,14 +1,17 @@
 import * as assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { unlinkSync } from 'node:fs';
 import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import { ProjectionDocument } from '../projection-document';
 import { ProjectionSaveCoordinator } from '../projection-save';
 
 const extensionId = 'brumm.sift';
+const execFileAsync = promisify(execFile);
 
 suite('Extension Test Suite', () => {
 	test('extension activates', async () => {
@@ -57,6 +60,61 @@ suite('Extension Test Suite', () => {
 			keybinding.key === 'down' &&
 			keybinding.when?.includes('resourceScheme == sift-editor'),
 		));
+	});
+
+	test('commit picker previews, reuses, pins, and cancels its Sift editor', async function () {
+		this.timeout(20_000);
+		const rootPath = await mkdtemp(join(tmpdir(), 'sift-commit-preview-'));
+		const rootUri = vscode.Uri.file(rootPath);
+		await runGit(rootPath, 'init');
+		await runGit(rootPath, 'config', 'user.name', 'Sift Test');
+		await runGit(rootPath, 'config', 'user.email', 'sift@example.com');
+		await runGit(rootPath, 'config', 'commit.gpgSign', 'false');
+		await writeFile(join(rootPath, 'value.ts'), "export const value = 'first';\n");
+		await runGit(rootPath, 'add', 'value.ts');
+		await runGit(rootPath, 'commit', '-m', 'First commit');
+		await writeFile(join(rootPath, 'value.ts'), "export const value = 'second';\n");
+		await runGit(rootPath, 'add', 'value.ts');
+		await runGit(rootPath, 'commit', '-m', 'Second commit');
+		await replaceWorkspaceFolders({ uri: rootUri });
+
+		try {
+			const command = vscode.commands.executeCommand('sift.siftCommit');
+			await waitFor(() =>
+				findSiftEditor()?.document.getText().includes("'second'") === true,
+			);
+			const previewUri = findSiftEditor()?.document.uri;
+			assert.ok(previewUri);
+			assert.equal(findTextTab(previewUri)?.isPreview, true);
+
+			await vscode.commands.executeCommand(
+				'workbench.action.quickOpenNavigateNext',
+			);
+			await waitFor(() => {
+				const editor = findSiftEditor();
+				return editor?.document.uri.toString() === previewUri.toString() &&
+					editor.document.getText().includes("'first'") &&
+					!editor.document.getText().includes("'second'");
+			});
+
+			await vscode.commands.executeCommand(
+				'workbench.action.acceptSelectedQuickOpenItem',
+			);
+			await command;
+			await waitFor(() => findTextTab(previewUri)?.isPreview === false);
+
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+			const cancelledCommand = vscode.commands.executeCommand('sift.siftCommit');
+			await waitFor(() => findSiftEditor() !== undefined);
+			await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+			await cancelledCommand;
+			await waitFor(() => findSiftEditor() === undefined);
+		} finally {
+			await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+			await replaceWorkspaceFolders();
+			await rm(rootPath, { recursive: true, force: true });
+		}
 	});
 
 	test('Find uses the current SIFT selection as the query', () => {
@@ -393,6 +451,16 @@ function findTextTab(uri: vscode.Uri): vscode.Tab | undefined {
 			tab.input instanceof vscode.TabInputText &&
 			tab.input.uri.toString() === uri.toString(),
 		);
+}
+
+function findSiftEditor(): vscode.TextEditor | undefined {
+	return vscode.window.visibleTextEditors.find(
+		editor => editor.document.uri.scheme === 'sift-editor',
+	);
+}
+
+async function runGit(rootPath: string, ...args: string[]): Promise<void> {
+	await execFileAsync('git', args, { cwd: rootPath });
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

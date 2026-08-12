@@ -81,6 +81,10 @@
         "title": "Sift: Diff Against…"
       },
       {
+        "command": "sift.siftCommit",
+        "title": "Sift: Commit…"
+      },
+      {
         "command": "sift.useSelectionAsQuery",
         "title": "Sift: Use Selection as Query"
       }

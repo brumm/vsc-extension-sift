@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { FffProjectSearch, splitFffFilter } from './project-search';
-import { loadWorkingTreeDiff, resolveDiffBase } from './git-diff';
+import {
+	loadCommitDiff,
+	loadWorkingTreeDiff,
+	resolveDiffBase,
+} from './git-diff';
 import { GitRunner } from './git-process';
 import { ProjectionDocument } from './projection-document';
 import {
@@ -37,16 +41,28 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 		const root = vscode.Uri.parse(target.rootUri);
 		const excludeGlobs = enabledFilesExcludeGlobs(root);
 		if (target.kind === 'diff') {
-			const base = await resolveDiffBase(
-				this.gitRunner,
-				root.fsPath,
-				target.baseRef,
-			);
-			const changedFiles = await loadWorkingTreeDiff(
-				this.gitRunner,
-				root.fsPath,
-				base.mergeBase,
-			);
+			let message: string;
+			let changedFiles;
+			if (target.commitRef) {
+				changedFiles = await loadCommitDiff(
+					this.gitRunner,
+					root.fsPath,
+					target.commitRef,
+				);
+				message = `Commit ${target.commitRef.slice(0, 12)}`;
+			} else {
+				const base = await resolveDiffBase(
+					this.gitRunner,
+					root.fsPath,
+					target.baseRef,
+				);
+				changedFiles = await loadWorkingTreeDiff(
+					this.gitRunner,
+					root.fsPath,
+					base.mergeBase,
+				);
+				message = `Compared with ${base.ref} at merge base ${base.mergeBase.slice(0, 12)}`;
+			}
 			const split = splitFffFilter(filter);
 			let matchingPaths: Set<string> | undefined;
 			if (split.constraints.length > 0) {
@@ -72,7 +88,7 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 					text: split.content,
 				}),
 				languageId: 'plaintext',
-				message: `Compared with ${base.ref} at merge base ${base.mergeBase.slice(0, 12)}`,
+				message,
 			};
 		}
 		if (target.kind === 'paths') {

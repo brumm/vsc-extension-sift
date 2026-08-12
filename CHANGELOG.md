@@ -6,4 +6,5 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+- Add **Sift: Commit…** with live Sift previews while browsing recent commits on the current branch.
 - Initial release
