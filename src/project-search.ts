@@ -20,6 +20,7 @@ export interface ProjectSearchPage {
 export interface PathSearchMatch {
 	uri: string;
 	relativePath: string;
+	gitStatus: string;
 }
 
 export class FffProjectSearch {
@@ -77,6 +78,10 @@ export class FffProjectSearch {
 		resolveUri(relativePath: string): string;
 	}): Promise<PathSearchMatch[]> {
 		const finder = await this.getFinder(input.rootUri, input.rootPath);
+		const refreshed = finder.refreshGitStatus();
+		if (!refreshed.ok) {
+			throw new Error(refreshed.error);
+		}
 		return allPathSearchMatches(
 			finder,
 			joinFffQuery(
@@ -84,6 +89,7 @@ export class FffProjectSearch {
 				input.query,
 			),
 			input.resolveUri,
+			input.query.trim() === '',
 		);
 	}
 
@@ -176,6 +182,7 @@ export function allPathSearchMatches(
 	finder: Pick<FileFinder, 'fileSearch'>,
 	query: string,
 	resolveUri: (relativePath: string) => string,
+	prioritizeGitChanges = query.trim() === '',
 ): PathSearchMatch[] {
 	const matches: PathSearchMatch[] = [];
 	const pageSize = 1_000;
@@ -187,14 +194,94 @@ export function allPathSearchMatches(
 		matches.push(...result.value.items.map(item => ({
 			uri: resolveUri(item.relativePath),
 			relativePath: item.relativePath.replaceAll('\\', '/'),
+			gitStatus: item.gitStatus,
 		})));
 		if (
 			matches.length >= result.value.totalMatched ||
 			result.value.items.length === 0
 		) {
-			return matches;
+			return prioritizeGitChanges
+				? sortChangedPathsFirst(matches)
+				: matches;
 		}
 	}
+}
+
+function isChangedGitStatus(status: string): boolean {
+	return status !== '' && status !== 'clean' && status !== 'ignored';
+}
+
+export function sortChangedPathsFirst<
+	T extends { relativePath: string; gitStatus: string },
+>(paths: readonly T[]): T[] {
+	return [...paths].sort((left, right) => {
+		const statusOrder = Number(isChangedGitStatus(right.gitStatus)) -
+			Number(isChangedGitStatus(left.gitStatus));
+		if (statusOrder !== 0) {
+			return statusOrder;
+		}
+		return isChangedGitStatus(left.gitStatus)
+			? left.relativePath.localeCompare(right.relativePath)
+			: 0;
+	});
+}
+
+export function deletedPathMatchesQuery(
+	relativePath: string,
+	query: string,
+	excludeGlobs: readonly string[] = [],
+): boolean {
+	const path = relativePath.toLocaleLowerCase();
+	if (excludeGlobs.some(pattern => globMatches(path, pattern.toLocaleLowerCase()))) {
+		return false;
+	}
+	return query.trim().split(/\s+/).filter(Boolean).every(rawToken => {
+		const token = rawToken.toLocaleLowerCase();
+		const excluded = token.startsWith('!');
+		const candidate = excluded ? token.slice(1) : token;
+		let matches: boolean;
+		if (candidate.startsWith('git:')) {
+			matches = candidate === 'git:deleted';
+		} else if (/[?*[]/u.test(candidate)) {
+			matches = globMatches(path, candidate);
+		} else {
+			matches = fuzzySubsequence(candidate.replace(/^\/+|\/+$/g, ''), path);
+		}
+		return excluded ? !matches : matches;
+	});
+}
+
+function fuzzySubsequence(query: string, value: string): boolean {
+	let queryIndex = 0;
+	for (const character of value) {
+		if (character === query[queryIndex]) {
+			queryIndex += 1;
+		}
+	}
+	return queryIndex === query.length;
+}
+
+function globMatches(value: string, glob: string): boolean {
+	let pattern = glob.includes('/') ? '^' : '^(?:.*/)?';
+	for (let index = 0; index < glob.length; index += 1) {
+		const character = glob[index];
+		if (character === '*' && glob[index + 1] === '*') {
+			if (glob[index + 2] === '/') {
+				pattern += '(?:.*/)?';
+				index += 2;
+			} else {
+				pattern += '.*';
+				index += 1;
+			}
+		} else if (character === '*') {
+			pattern += '[^/]*';
+		} else if (character === '?') {
+			pattern += '[^/]';
+		} else {
+			pattern += escapeRegExp(character);
+		}
+	}
+	return new RegExp(`${pattern}$`, 'u').test(value);
 }
 
 export function byteRangesToFilterMatches(

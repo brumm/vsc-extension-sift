@@ -7,11 +7,22 @@ import {
 	allPathSearchMatches,
 	byteRangesToFilterMatches,
 	compileFffQuery,
+	deletedPathMatchesQuery,
 	filesExcludeConstraints,
 	projectSearchMatchesFromGrep,
 	splitFffFilter,
 	splitFffQuery,
 } from '../project-search';
+
+test('matches deleted paths against fuzzy, glob, exclusion, and Git queries', () => {
+	assert.equal(deletedPathMatchesQuery('src/renamed-file.ts', ''), true);
+	assert.equal(deletedPathMatchesQuery('src/renamed-file.ts', 'rnmd'), true);
+	assert.equal(deletedPathMatchesQuery('src/renamed-file.ts', '*.ts'), true);
+	assert.equal(deletedPathMatchesQuery('src/renamed-file.ts', 'git:deleted'), true);
+	assert.equal(deletedPathMatchesQuery('src/renamed-file.ts', 'git:modified'), false);
+	assert.equal(deletedPathMatchesQuery('src/renamed-file.ts', '!src/'), false);
+	assert.equal(deletedPathMatchesQuery('dist/file.ts', '', ['dist/**']), false);
+});
 
 test('splits only leading FFF path constraints from diff content', () => {
 	assert.deepEqual(splitFffQuery('src/ *.ts !test/ changed value'), {
@@ -74,14 +85,97 @@ test('passes the raw FFF path query through every result page', () => {
 			relativePath => `file:///workspace/${relativePath}`,
 		),
 		[
-			{ uri: 'file:///workspace/src/foo/one.ts', relativePath: 'src/foo/one.ts' },
-			{ uri: 'file:///workspace/src/foo/two.ts', relativePath: 'src/foo/two.ts' },
+			{ uri: 'file:///workspace/src/foo/one.ts', relativePath: 'src/foo/one.ts', gitStatus: 'clean' },
+			{ uri: 'file:///workspace/src/foo/two.ts', relativePath: 'src/foo/two.ts', gitStatus: 'clean' },
 		],
 	);
 	assert.deepEqual(calls, [
 		{ query, pageIndex: 0, pageSize: 1_000 },
 		{ query, pageIndex: 1, pageSize: 1_000 },
 	]);
+});
+
+test('sorts changed path results alphabetically before clean results', () => {
+	const entries = [
+		{ relativePath: 'clean-first.ts', gitStatus: 'clean' },
+		{ relativePath: 'z-modified.ts', gitStatus: 'modified' },
+		{ relativePath: 'a-untracked.ts', gitStatus: 'untracked' },
+		{ relativePath: 'b-deleted.ts', gitStatus: 'deleted' },
+		{ relativePath: 'clean-second.ts', gitStatus: 'clean' },
+	];
+	const finder = {
+		fileSearch() {
+			return {
+				ok: true as const,
+				value: {
+					items: entries.map(({ relativePath, gitStatus }) => ({
+						relativePath,
+						fileName: relativePath,
+						size: 0,
+						modified: 0,
+						accessFrecencyScore: 0,
+						modificationFrecencyScore: 0,
+						totalFrecencyScore: 0,
+						gitStatus,
+					})),
+					scores: [],
+					totalMatched: entries.length,
+					totalFiles: entries.length,
+				},
+			};
+		},
+	};
+
+	assert.deepEqual(
+		allPathSearchMatches(
+			finder as Parameters<typeof allPathSearchMatches>[0],
+			'',
+			relativePath => relativePath,
+		).map(match => [match.relativePath, match.gitStatus]),
+		[
+			['a-untracked.ts', 'untracked'],
+			['b-deleted.ts', 'deleted'],
+			['z-modified.ts', 'modified'],
+			['clean-first.ts', 'clean'],
+			['clean-second.ts', 'clean'],
+		],
+	);
+});
+
+test('keeps FFF scoring order when a path query is active', () => {
+	const finder = {
+		fileSearch() {
+			return {
+				ok: true as const,
+				value: {
+					items: [
+						{ relativePath: 'z-clean.ts', gitStatus: 'clean' },
+						{ relativePath: 'a-modified.ts', gitStatus: 'modified' },
+					].map(item => ({
+						...item,
+						fileName: item.relativePath,
+						size: 0,
+						modified: 0,
+						accessFrecencyScore: 0,
+						modificationFrecencyScore: 0,
+						totalFrecencyScore: 0,
+					})),
+					scores: [],
+					totalMatched: 2,
+					totalFiles: 2,
+				},
+			};
+		},
+	};
+
+	assert.deepEqual(
+		allPathSearchMatches(
+			finder as Parameters<typeof allPathSearchMatches>[0],
+			'file',
+			relativePath => relativePath,
+		).map(match => match.relativePath),
+		['z-clean.ts', 'a-modified.ts'],
+	);
 });
 
 test('FFF path search applies inline glob and exclusion constraints', async t => {

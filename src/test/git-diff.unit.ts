@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
 	adaptParsedDiff,
 	loadCommitDiff,
+	loadDeletedPaths,
 	loadWorkingTreeDiff,
 	listDiffBaseRefs,
 	listRecentCommits,
@@ -29,6 +30,27 @@ class StubGitRunner implements GitRunner {
 		return this.respond(args, options);
 	}
 }
+
+test('loads deleted paths without including detected renames', async () => {
+	const runner = new StubGitRunner(args => {
+		assert.deepEqual(args, [
+			'diff', 'HEAD', '--name-only', '--diff-filter=D', '--find-renames', '-z', '--',
+		]);
+		return 'old/path.ts\0gone.ts\0';
+	});
+
+	assert.deepEqual(await loadDeletedPaths(runner, '/repo'), [
+		'old/path.ts',
+		'gone.ts',
+	]);
+});
+
+test('treats deleted paths as optional outside a Git worktree', async () => {
+	const runner = new StubGitRunner(() => {
+		throw new Error('not a Git repository');
+	});
+	assert.deepEqual(await loadDeletedPaths(runner, '/repo'), []);
+});
 
 test('resolves HEAD as the default diff base', async () => {
 	const runner = new StubGitRunner(args => {

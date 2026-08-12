@@ -58,6 +58,29 @@ export async function listRecentCommits(
 	});
 }
 
+export async function loadDeletedPaths(
+	runner: GitRunner,
+	rootPath: string,
+): Promise<string[]> {
+	try {
+		const output = await runner.run(rootPath, [
+			'diff',
+			'HEAD',
+			'--name-only',
+			'--diff-filter=D',
+			'--find-renames',
+			'-z',
+			'--',
+		]);
+		return output
+			.split('\0')
+			.filter(Boolean)
+			.map(relativePath => relativePath.replaceAll('\\', '/'));
+	} catch {
+		return [];
+	}
+}
+
 export async function resolveDiffBase(
 	runner: GitRunner,
 	rootPath: string,

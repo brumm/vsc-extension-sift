@@ -39,14 +39,16 @@ export type ProjectionRow =
 		source: SourceLine;
 		baseline: string;
 		role?: 'path';
+		gitStatus?: string;
 		matches?: readonly FilterMatch[];
 		change?: 'added';
 		hunkStart?: boolean;
 	}
 	| {
 		kind: 'annotation';
-		role: 'header' | 'spacer' | 'message' | 'terminal' | 'deletion';
+		role: 'header' | 'spacer' | 'message' | 'terminal' | 'deletion' | 'deleted-path';
 		label?: string;
+		gitStatus?: string;
 		sourceUri?: string;
 		sourceLine?: number;
 		changeStatus?: DiffProjectionFile['status'];
@@ -79,8 +81,9 @@ export interface ProjectSearchMatch {
 }
 
 export interface PathProjectionInput {
-	uri: string;
+	uri?: string;
 	relativePath: string;
+	gitStatus?: string;
 }
 
 export interface DiffProjectionFile {
@@ -283,12 +286,20 @@ export class ProjectionDocument {
 		}
 		return new ProjectionDocument(
 			paths.map(path => path.relativePath).join('\n'),
-			paths.map(path => ({
-				kind: 'mapped' as const,
-				source: { uri: path.uri, line: 0 },
-				baseline: path.relativePath,
-				role: 'path' as const,
-			})),
+			paths.map((path): ProjectionRow => path.uri
+				? {
+					kind: 'mapped',
+					source: { uri: path.uri, line: 0 },
+					baseline: path.relativePath,
+					role: 'path',
+					gitStatus: path.gitStatus,
+				}
+				: {
+					kind: 'annotation',
+					role: 'deleted-path',
+					label: path.relativePath,
+					gitStatus: path.gitStatus,
+				}),
 			1,
 		);
 	}
@@ -296,6 +307,7 @@ export class ProjectionDocument {
 	static forPathContent(
 		content: string,
 		resolveUri: (relativePath: string) => string,
+		deletedPaths: ReadonlySet<string> = new Set(),
 	): ProjectionDocument {
 		const relativePaths = content.split(/\r?\n/);
 		if (relativePaths.length > 1 && relativePaths.at(-1) === '') {
@@ -305,8 +317,9 @@ export class ProjectionDocument {
 			return ProjectionDocument.forPaths([]);
 		}
 		return ProjectionDocument.forPaths(relativePaths.map(relativePath => ({
-			uri: resolveUri(relativePath),
+			uri: deletedPaths.has(relativePath) ? undefined : resolveUri(relativePath),
 			relativePath,
+			gitStatus: deletedPaths.has(relativePath) ? 'deleted' : undefined,
 		})));
 	}
 

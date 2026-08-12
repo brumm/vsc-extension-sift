@@ -1,7 +1,13 @@
 import * as vscode from 'vscode';
-import { FffProjectSearch, splitFffFilter } from './project-search';
+import {
+	deletedPathMatchesQuery,
+	FffProjectSearch,
+	sortChangedPathsFirst,
+	splitFffFilter,
+} from './project-search';
 import {
 	loadCommitDiff,
+	loadDeletedPaths,
 	loadWorkingTreeDiff,
 	resolveDiffBase,
 } from './git-diff';
@@ -100,8 +106,18 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 				resolveUri: relativePath =>
 					vscode.Uri.joinPath(root, relativePath).toString(),
 			});
+			const deleted = (await loadDeletedPaths(this.gitRunner, root.fsPath))
+				.filter(relativePath => deletedPathMatchesQuery(
+					relativePath,
+					filter.text,
+					excludeGlobs,
+				))
+				.map(relativePath => ({ relativePath, gitStatus: 'deleted' }));
+			const paths = filter.text.trim() === ''
+				? sortChangedPathsFirst([...matches, ...deleted])
+				: [...matches, ...deleted];
 			return {
-				projection: ProjectionDocument.forPaths(matches),
+				projection: ProjectionDocument.forPaths(paths),
 				languageId: 'plaintext',
 			};
 		}

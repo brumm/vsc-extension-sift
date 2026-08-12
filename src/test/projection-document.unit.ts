@@ -289,11 +289,12 @@ test('diff projection marks later visible hunk boundaries', () => {
 
 test('path projection maps editable relative paths to source files', () => {
 	const projection = ProjectionDocument.forPaths([
-		{ uri: 'file:///workspace/src/one.ts', relativePath: 'src/one.ts' },
+		{ uri: 'file:///workspace/src/one.ts', relativePath: 'src/one.ts', gitStatus: 'modified' },
 		{ uri: 'file:///workspace/src/two.ts', relativePath: 'src/two.ts' },
 	]);
 
 	assert.equal(projection.content, 'src/one.ts\nsrc/two.ts');
+	assert.equal(projection.rows[0]?.kind === 'mapped' && projection.rows[0].gitStatus, 'modified');
 	assert.deepEqual(projection.sourceAt(1, 8), {
 		uri: 'file:///workspace/src/two.ts',
 		line: 0,
@@ -343,6 +344,28 @@ test('path save planning rejects inserted rows', () => {
 	assert.deepEqual(projection.planPathSave('one.ts\ntwo.ts'), {
 		ok: false,
 		message: 'Existing path rows may be edited, but rows cannot be inserted or deleted.',
+	});
+});
+
+test('deleted path rows have no source and cannot be renamed', () => {
+	const projection = ProjectionDocument.forPaths([
+		{ uri: 'file:///workspace/new.ts', relativePath: 'new.ts', gitStatus: 'untracked' },
+		{ relativePath: 'old.ts', gitStatus: 'deleted' },
+	]);
+
+	assert.equal(projection.content, 'new.ts\nold.ts');
+	assert.equal(projection.sourceAt(1, 0), undefined);
+	assert.deepEqual(projection.planPathSave('new.ts\nrenamed-old.ts'), {
+		ok: false,
+		message: 'Only path rows can be renamed.',
+	});
+	assert.deepEqual(projection.planPathSave('renamed-new.ts\nold.ts'), {
+		ok: true,
+		renames: [{
+			sourceUri: 'file:///workspace/new.ts',
+			before: 'new.ts',
+			after: 'renamed-new.ts',
+		}],
 	});
 });
 

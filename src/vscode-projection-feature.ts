@@ -117,6 +117,14 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
 
+  const pathGitStatusDecoration = vscode.window.createTextEditorDecorationType({
+    before: {
+      margin: '0 0.75em 0 0',
+      fontWeight: 'bold',
+    },
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
   const addedLineDecoration = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
     backgroundColor: new vscode.ThemeColor('diffEditor.insertedTextBackground'),
@@ -315,6 +323,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const clearEditorDecorations = (editor: vscode.TextEditor): void => {
     editor.setDecorations(lineNumberDecoration, [])
     editor.setDecorations(fileHeaderDecoration, [])
+    editor.setDecorations(pathGitStatusDecoration, [])
     editor.setDecorations(matchHighlightDecoration, [])
     editor.setDecorations(addedLineDecoration, [])
     editor.setDecorations(deletedLineDecoration, [])
@@ -435,20 +444,48 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       fileHeaderDecoration,
       session.projection.rows.flatMap((row, line) =>
         row.kind === 'annotation' && row.role === 'header' && row.label
-          ? [{
-        range: new vscode.Range(line, 0, line, 0),
-        renderOptions: {
-          before: {
-            contentText: row.label,
-            color: row.changeStatus
-              ? new vscode.ThemeColor(diffStatusColor(row.changeStatus))
-              : undefined,
-          },
-        },
-        hoverMessage: row.sourceUri
-          ? vscode.Uri.parse(row.sourceUri).fsPath
-          : undefined,
-      }]
+          ? [
+              {
+                range: new vscode.Range(line, 0, line, 0),
+                renderOptions: {
+                  before: {
+                    contentText: row.label,
+                    color: row.changeStatus
+                      ? new vscode.ThemeColor(diffStatusColor(row.changeStatus))
+                      : undefined,
+                  },
+                },
+                hoverMessage: row.sourceUri
+                  ? vscode.Uri.parse(row.sourceUri).fsPath
+                  : undefined,
+              },
+            ]
+          : [],
+      ),
+    )
+    editor.setDecorations(
+      pathGitStatusDecoration,
+      session.projection.rows.flatMap((row, line) =>
+        (row.kind === 'mapped' && row.role === 'path') ||
+        (row.kind === 'annotation' && row.role === 'deleted-path')
+          ? [
+              {
+                range: new vscode.Range(line, 0, line, 0),
+                renderOptions: {
+                  before: {
+                    contentText: isChangedGitStatus(row.gitStatus)
+                      ? gitStatusMarker(row.gitStatus)
+                      : '\u00a0',
+                    color: isChangedGitStatus(row.gitStatus)
+                      ? new vscode.ThemeColor(gitStatusColor(row.gitStatus))
+                      : undefined,
+                  },
+                },
+                hoverMessage: isChangedGitStatus(row.gitStatus)
+                  ? `Git status: ${formatGitStatus(row.gitStatus)}`
+                  : undefined,
+              },
+            ]
           : [],
       ),
     )
@@ -1154,31 +1191,37 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       savedPathContent = new TextDecoder().decode(provider.readFile(uri))
       saveProjection = ProjectionDocument.forPathContent(
         savedPathContent,
-        (relativePath) => vscode.Uri.joinPath(
-          rootUri,
-          ...relativePath.split('/'),
-        ).toString(),
+        (relativePath) =>
+          vscode.Uri.joinPath(rootUri, ...relativePath.split('/')).toString(),
+        new Set(
+          session.projection.rows.flatMap((row) =>
+            row.kind === 'annotation' &&
+            row.role === 'deleted-path' &&
+            row.label
+              ? [row.label]
+              : [],
+          ),
+        ),
       )
       output.appendLine('\n=== path save requested ===')
       output.appendLine(`Session: ${session.id}`)
       output.appendLine(`Saved paths:\n${savedPathContent}`)
       output.appendLine(`Working paths:\n${content}`)
     }
-    const outcome = session.target.kind === 'paths'
-      ? await saveCoordinator.savePaths(
-          saveProjection,
-          content,
-          vscode.Uri.parse(session.target.rootUri),
-          beforeApply,
-        )
-      : await saveCoordinator.save(
-          session.projection,
-          content,
-          beforeApply,
-        )
+    const outcome =
+      session.target.kind === 'paths'
+        ? await saveCoordinator.savePaths(
+            saveProjection,
+            content,
+            vscode.Uri.parse(session.target.rootUri),
+            beforeApply,
+          )
+        : await saveCoordinator.save(session.projection, content, beforeApply)
     if (!outcome.ok) {
       if (session.target.kind === 'paths') {
-        output.appendLine(`Path save failed: ${outcome.kind}: ${outcome.message}`)
+        output.appendLine(
+          `Path save failed: ${outcome.kind}: ${outcome.message}`,
+        )
       }
       void vscode.window.showErrorMessage(outcome.message)
       throw outcome.kind === 'invalid-working-copy'
@@ -1240,25 +1283,42 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       }
     }
   }
+  const refreshGitSessions = (rootUri: string): void => {
+    for (const session of sessions.values()) {
+      if (
+        session.target.kind !== 'file' &&
+        session.target.rootUri === rootUri
+      ) {
+        scheduleRefresh(session)
+      }
+    }
+  }
   const refreshDiffSessionsForUri = (uri: vscode.Uri): void => {
     const folder = vscode.workspace.getWorkspaceFolder(uri)
     if (folder) {
       refreshDiffSessions(folder.uri.toString())
     }
   }
-  const gitWatchers = (vscode.workspace.workspaceFolders ?? []).flatMap(folder => {
-    if (folder.uri.scheme !== 'file') {
-      return []
-    }
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(folder, '.git/{HEAD,index,packed-refs,refs/**}'),
-    )
-    watcher.onDidCreate(() => refreshDiffSessions(folder.uri.toString()))
-    watcher.onDidChange(() => refreshDiffSessions(folder.uri.toString()))
-    watcher.onDidDelete(() => refreshDiffSessions(folder.uri.toString()))
-    return [watcher]
-  })
-  const workspaceFileWatchers = (vscode.workspace.workspaceFolders ?? []).flatMap(folder => {
+  const gitWatchers = (vscode.workspace.workspaceFolders ?? []).flatMap(
+    (folder) => {
+      if (folder.uri.scheme !== 'file') {
+        return []
+      }
+      const watcher = vscode.workspace.createFileSystemWatcher(
+        new vscode.RelativePattern(
+          folder,
+          '.git/{HEAD,index,packed-refs,refs/**}',
+        ),
+      )
+      watcher.onDidCreate(() => refreshGitSessions(folder.uri.toString()))
+      watcher.onDidChange(() => refreshGitSessions(folder.uri.toString()))
+      watcher.onDidDelete(() => refreshGitSessions(folder.uri.toString()))
+      return [watcher]
+    },
+  )
+  const workspaceFileWatchers = (
+    vscode.workspace.workspaceFolders ?? []
+  ).flatMap((folder) => {
     if (folder.uri.scheme !== 'file') {
       return []
     }
@@ -1277,6 +1337,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     status,
     lineNumberDecoration,
     fileHeaderDecoration,
+    pathGitStatusDecoration,
     matchHighlightDecoration,
     addedLineDecoration,
     deletedLineDecoration,
@@ -2089,4 +2150,53 @@ function diffStatusColor(
     case 'modified':
       return 'gitDecoration.modifiedResourceForeground'
   }
+}
+
+function gitStatusMarker(status: string): string {
+  if (status.includes('conflict')) {
+    return '!'
+  }
+  if (status.includes('rename')) {
+    return 'R'
+  }
+  if (status.includes('delete')) {
+    return 'D'
+  }
+  if (status === 'untracked') {
+    return 'U'
+  }
+  if (status === 'staged') {
+    return 'S'
+  }
+  if (status.includes('new') || status.includes('add')) {
+    return 'A'
+  }
+  return 'M'
+}
+
+function isChangedGitStatus(status: string | undefined): status is string {
+  return Boolean(status && status !== 'clean' && status !== 'ignored')
+}
+
+function gitStatusColor(status: string): string {
+  if (status.includes('conflict')) {
+    return 'gitDecoration.conflictingResourceForeground'
+  }
+  if (status.includes('rename')) {
+    return 'gitDecoration.renamedResourceForeground'
+  }
+  if (status.includes('delete')) {
+    return 'gitDecoration.deletedResourceForeground'
+  }
+  if (status === 'untracked') {
+    return 'gitDecoration.untrackedResourceForeground'
+  }
+  if (status.includes('new') || status.includes('add')) {
+    return 'gitDecoration.addedResourceForeground'
+  }
+  return 'gitDecoration.modifiedResourceForeground'
+}
+
+function formatGitStatus(status: string): string {
+  return status.replaceAll('_', ' ')
 }
