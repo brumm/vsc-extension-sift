@@ -853,7 +853,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         runtimeFor(session).refreshTimer = undefined
         void refresh(session, preserveEditorState, silentWhenDirty)
       },
-      30,
+      session.target.kind === 'project' ? 120 : 30,
     )
   }
 

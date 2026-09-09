@@ -212,6 +212,7 @@
       useRegex: initialState.useRegex,
       contextLines: initialState.contextLines,
     }
+    let querySequence = 0
     input.value = initialState.query
     const focusInput = selectAll => {
       input.focus()
@@ -262,7 +263,12 @@
     renderOptions()
     renderContext()
     input.addEventListener('input', () => {
-      vscode.postMessage({ type: 'query', value: input.value })
+      querySequence += 1
+      vscode.postMessage({
+        type: 'query',
+        value: input.value,
+        querySequence,
+      })
     })
 
     input.addEventListener('keydown', event => {
@@ -297,7 +303,10 @@
     window.addEventListener('message', event => {
       const message = event.data
       if (message.type === 'setState') {
-        if (input.value !== message.value) {
+        if (
+          message.querySequence >= querySequence &&
+          input.value !== message.value
+        ) {
           input.value = message.value
           input.setSelectionRange(input.value.length, input.value.length)
         }

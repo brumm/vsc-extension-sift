@@ -17,6 +17,7 @@ interface FilterInsetEntry {
   sessionId: string
   inset: vscode.WebviewEditorInset
   focusInput: boolean
+  querySequence: number
 }
 
 export interface ProjectionFilterInsetCallbacks {
@@ -62,7 +63,12 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         1.5,
         { enableScripts: true },
       )
-      const entry = { sessionId: session.id, inset, focusInput }
+      const entry = {
+        sessionId: session.id,
+        inset,
+        focusInput,
+        querySequence: 0,
+      }
       this.entries.set(editor, entry)
       const messageSubscription = inset.webview.onDidReceiveMessage(
         (message: unknown) =>
@@ -92,6 +98,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         void entry.inset.webview.postMessage({
           type: 'setState',
           value: session.filter.text,
+          querySequence: entry.querySequence,
           matchCase: session.filter.matchCase,
           wholeWord: session.filter.wholeWord,
           useRegex: session.filter.useRegex,
@@ -121,6 +128,16 @@ export class ProjectionFilterInsets implements vscode.Disposable {
     switch (message.type) {
       case 'query': {
         if ('value' in message && typeof message.value === 'string') {
+          if (
+            'querySequence' in message &&
+            typeof message.querySequence === 'number' &&
+            Number.isInteger(message.querySequence)
+          ) {
+            entry.querySequence = Math.max(
+              entry.querySequence,
+              message.querySequence,
+            )
+          }
           if (session.filter.text !== message.value) {
             this.callbacks.onFilterChanged(session, {
               ...session.filter,
