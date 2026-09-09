@@ -9,7 +9,8 @@ export type ProjectionTarget =
 	| { kind: 'file'; sourceUri: string }
 	| { kind: 'project'; rootUri: string }
 	| { kind: 'paths'; rootUri: string }
-	| { kind: 'diff'; rootUri: string; baseRef?: string; commitRef?: string };
+	| { kind: 'diff'; rootUri: string; baseRef?: string; commitRef?: string }
+	| { kind: 'problems' };
 
 export interface ProjectionSessionDescriptor {
 	id: string;
@@ -25,7 +26,7 @@ export interface SessionPersistence {
 
 interface LegacyStoredSession {
 	id: string;
-	kind?: 'file' | 'project' | 'paths' | 'diff';
+	kind?: 'file' | 'project' | 'paths' | 'diff' | 'problems';
 	sourceUri?: string;
 	rootUri?: string;
 	query?: string;
@@ -350,10 +351,12 @@ export class ProjectionSessions {
 			const message = error instanceof Error ? error.message : String(error);
 			const targetUri = session.target.kind === 'file'
 				? session.target.sourceUri
-				: session.target.rootUri;
+				: session.target.kind === 'problems'
+					? 'current window'
+					: session.target.rootUri;
 			const content = session.target.kind === 'file'
 				? `Source is unavailable:\n${targetUri}\n\n${message}`
-				: `${session.target.kind === 'paths' ? 'Path search' : session.target.kind === 'diff' ? 'Diff' : 'Project search'} failed:\n${targetUri}\n\n${message}`;
+				: `${session.target.kind === 'paths' ? 'Path search' : session.target.kind === 'diff' ? 'Diff' : session.target.kind === 'problems' ? 'Problems' : 'Project search'} failed:\n${targetUri}\n\n${message}`;
 			if (
 				!session.failRefresh(
 					start.revision,
@@ -417,7 +420,9 @@ function normalizeStoredSessions(
 		}
 
 		if (candidate.target && candidate.filter) {
-			const target = candidate.target.kind === 'file' &&
+			const target = candidate.target.kind === 'problems'
+				? { kind: 'problems' as const }
+				: candidate.target.kind === 'file' &&
 				typeof candidate.target.sourceUri === 'string'
 				? { kind: 'file' as const, sourceUri: candidate.target.sourceUri }
 				: candidate.target.kind === 'project' &&
@@ -458,7 +463,9 @@ function normalizeStoredSessions(
 			}];
 		}
 
-		const target = candidate.kind === 'project' || candidate.kind === 'paths' || candidate.kind === 'diff'
+		const target = candidate.kind === 'problems'
+			? { kind: 'problems' as const }
+			: candidate.kind === 'project' || candidate.kind === 'paths' || candidate.kind === 'diff'
 			? typeof candidate.rootUri === 'string'
 				? { kind: candidate.kind, rootUri: candidate.rootUri }
 				: undefined

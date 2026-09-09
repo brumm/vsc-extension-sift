@@ -198,6 +198,100 @@ test('project projection owns mapped and annotation rows together', () => {
 	);
 });
 
+test('problem projection filters metadata and groups problems by source line', () => {
+	const projection = ProjectionDocument.forProblems([
+		{
+			uri: 'file:///workspace/example.ts',
+			relativePath: 'example.ts',
+			line: 2,
+			character: 12,
+			text: 'const value: string = 1;',
+			severity: 'error',
+			message: "Type 'number' is not assignable to type 'string'.",
+			source: 'ts',
+			code: '2322',
+		},
+		{
+			uri: 'file:///workspace/example.ts',
+			relativePath: 'example.ts',
+			line: 2,
+			character: 6,
+			text: 'const value: string = 1;',
+			severity: 'warning',
+			message: 'Value is never read.',
+			source: 'ts',
+			code: '6133',
+		},
+	], {
+		text: 'ts',
+		matchCase: false,
+		wholeWord: true,
+		useRegex: false,
+		contextLines: 0,
+	});
+
+	assert.equal(projection.content, '\nconst value: string = 1;');
+	assert.equal(projection.rows.length, 2);
+	assert.deepEqual(projection.rows[1], {
+		kind: 'mapped',
+		source: { uri: 'file:///workspace/example.ts', line: 2 },
+		sourceCharacter: 6,
+		baseline: 'const value: string = 1;',
+		matches: [],
+		problems: [
+			{
+				severity: 'error',
+				message: "Type 'number' is not assignable to type 'string'.",
+				source: 'ts',
+				code: '2322',
+			},
+			{
+				severity: 'warning',
+				message: 'Value is never read.',
+				source: 'ts',
+				code: '6133',
+			},
+		],
+	});
+	assert.deepEqual(projection.sourceAt(1, 20), {
+		uri: 'file:///workspace/example.ts',
+		line: 2,
+		character: 6,
+	});
+	assert.deepEqual(projection.planSave('\nconst value: string = "1";'), {
+		ok: true,
+		edits: [{
+			uri: 'file:///workspace/example.ts',
+			line: 2,
+			before: 'const value: string = 1;',
+			after: 'const value: string = "1";',
+		}],
+	});
+});
+
+test('problem projection filters by source text and records match ranges', () => {
+	const projection = ProjectionDocument.forProblems([{
+		uri: 'file:///workspace/example.ts',
+		relativePath: 'example.ts',
+		line: 0,
+		character: 0,
+		text: 'const needle = true;',
+		severity: 'information',
+		message: 'Informational problem.',
+	}], {
+		text: 'needle',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	});
+
+	assert.deepEqual(
+		projection.rows.flatMap(row => row.kind === 'mapped' ? [row.matches] : []),
+		[[{ start: 6, end: 12 }]],
+	);
+});
+
 test('diff projection filters current lines and maps them to editable sources', () => {
 	const projection = ProjectionDocument.forDiff([{
 		uri: 'file:///workspace/src/a.ts',

@@ -31,6 +31,65 @@ suite('Extension Test Suite', () => {
 		);
 	});
 
+	test('contributes the Sift Problems command', () => {
+		const extension = vscode.extensions.getExtension(extensionId);
+		assert.ok(extension);
+		const commands = extension.packageJSON.contributes?.commands as
+			| { command?: string; title?: string }[]
+			| undefined;
+		assert.ok(commands?.some(command =>
+			command.command === 'sift.siftProblems' &&
+			command.title === 'Sift Problems',
+		));
+	});
+
+	test('sifts, edits, and refreshes current Problems', async function () {
+		this.timeout(10_000);
+		const rootPath = await mkdtemp(join(tmpdir(), 'sift-problems-'));
+		const rootUri = vscode.Uri.file(rootPath);
+		const sourceUri = vscode.Uri.joinPath(rootUri, 'problem.ts');
+		const diagnostics = vscode.languages.createDiagnosticCollection(
+			`sift-test-${randomUUID()}`,
+		);
+		await writeFile(sourceUri.fsPath, 'const broken = true;\n');
+		await replaceWorkspaceFolders({ uri: rootUri });
+		diagnostics.set(sourceUri, [Object.assign(
+			new vscode.Diagnostic(
+				new vscode.Range(0, 6, 0, 12),
+				'Unique Sift test problem',
+				vscode.DiagnosticSeverity.Error,
+			),
+			{ source: 'sift-test', code: 'SIFT001' },
+		)]);
+
+		try {
+			await vscode.commands.executeCommand('sift.siftProblems');
+			await waitFor(() =>
+				findSiftEditor()?.document.getText().includes('const broken = true;') === true,
+			);
+			const editor = findSiftEditor();
+			assert.ok(editor);
+			await editor.edit(edit => edit.replace(
+				fullDocumentRange(editor.document),
+				'\nconst fixed = true;',
+			));
+			await vscode.commands.executeCommand('sift.save');
+			await waitFor(() =>
+				vscode.workspace.textDocuments.find(
+					document => document.uri.toString() === sourceUri.toString(),
+				)?.getText() === 'const fixed = true;\n',
+			);
+
+			diagnostics.delete(sourceUri);
+			await waitFor(() => findSiftEditor()?.document.getText() === '');
+		} finally {
+			diagnostics.dispose();
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+			await replaceWorkspaceFolders();
+			await rm(rootPath, { recursive: true, force: true });
+		}
+	});
+
 	test('Escape routes through the SIFT close command', () => {
 		const extension = vscode.extensions.getExtension(extensionId);
 		assert.ok(extension);

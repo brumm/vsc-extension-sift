@@ -343,6 +343,24 @@ test('restores a diff session for a selected commit', () => {
 	});
 });
 
+test('restores a problems session', () => {
+	const persistence = new MemoryPersistence();
+	persistence.stored = [{
+		...descriptor,
+		target: { kind: 'problems' },
+		languageId: 'plaintext',
+	}];
+
+	const sessions = new ProjectionSessions(
+		persistence,
+		new StubBuilder({ projection: ProjectionDocument.message('unused') }),
+	);
+
+	assert.deepEqual([...sessions.values()].map(session => session.target), [
+		{ kind: 'problems' },
+	]);
+});
+
 test('closing a session removes it from persistence', async () => {
 	const persistence = new MemoryPersistence();
 	const builder = new DeferredBuilder();

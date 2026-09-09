@@ -235,7 +235,9 @@ function filterInsetHtml(
         ? 'Sift Paths'
         : session.target.kind === 'diff'
           ? 'Sift Diff'
-          : 'Sift Editor'
+          : session.target.kind === 'problems'
+            ? 'Sift Problems'
+            : 'Sift Editor'
   const projectSearchButton =
     session.target.kind === 'file'
       ? `<button type="button" data-action="search-project" title="Sift Project" aria-label="Sift Project"><span class="codicon codicon-search" aria-hidden="true">${searchIcon}</span></button>`
@@ -243,7 +245,14 @@ function filterInsetHtml(
 
   return insetTemplate
     .replaceAll('__SIFT_NONCE__', nonce)
-    .replaceAll('__SIFT_BODY_CLASS__', session.target.kind === 'paths' ? 'query-only' : '')
+    .replaceAll(
+      '__SIFT_BODY_CLASS__',
+      session.target.kind === 'paths'
+        ? 'query-only'
+        : session.target.kind === 'problems'
+          ? 'no-context'
+          : '',
+    )
     .replaceAll('__SIFT_PLACEHOLDER__', placeholder)
     .replace('__SIFT_CASE_SENSITIVE_ICON__', caseSensitiveIcon)
     .replace('__SIFT_WHOLE_WORD_ICON__', wholeWordIcon)

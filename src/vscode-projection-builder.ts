@@ -12,7 +12,11 @@ import {
 	resolveDiffBase,
 } from './git-diff';
 import { GitRunner } from './git-process';
-import { ProjectionDocument } from './projection-document';
+import {
+	ProblemProjectionInput,
+	ProblemSeverity,
+	ProjectionDocument,
+} from './projection-document';
 import {
 	ProjectionBuild,
 	ProjectionBuilder,
@@ -41,6 +45,15 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 					filter,
 				}),
 				languageId: source.languageId,
+			};
+		}
+		if (target.kind === 'problems') {
+			return {
+				projection: ProjectionDocument.forProblems(
+					await loadProblems(),
+					filter,
+				),
+				languageId: 'plaintext',
 			};
 		}
 
@@ -145,6 +158,61 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 				: undefined,
 		};
 	}
+}
+
+async function loadProblems(): Promise<ProblemProjectionInput[]> {
+	const entries = vscode.languages.getDiagnostics()
+		.filter(([uri, diagnostics]) => uri.scheme === 'file' && diagnostics.length > 0)
+		.sort(([left], [right]) => left.fsPath.localeCompare(right.fsPath));
+	const loaded = await Promise.all(entries.map(async ([uri, diagnostics]) => {
+		try {
+			const document = await vscode.workspace.openTextDocument(uri);
+			const relativePath = vscode.workspace.asRelativePath(
+				uri,
+				(vscode.workspace.workspaceFolders?.length ?? 0) > 1,
+			);
+			return diagnostics.map((diagnostic): ProblemProjectionInput => {
+				const line = Math.min(diagnostic.range.start.line, document.lineCount - 1);
+				return {
+					uri: uri.toString(),
+					relativePath,
+					line,
+					character: Math.min(
+						diagnostic.range.start.character,
+						document.lineAt(line).text.length,
+					),
+					text: document.lineAt(line).text,
+					severity: problemSeverity(diagnostic.severity),
+					message: diagnostic.message,
+					source: diagnostic.source,
+					code: diagnosticCode(diagnostic.code),
+				};
+			});
+		} catch {
+			return [];
+		}
+	}));
+	return loaded.flat();
+}
+
+function problemSeverity(severity: vscode.DiagnosticSeverity): ProblemSeverity {
+	switch (severity) {
+		case vscode.DiagnosticSeverity.Error:
+			return 'error';
+		case vscode.DiagnosticSeverity.Warning:
+			return 'warning';
+		case vscode.DiagnosticSeverity.Information:
+			return 'information';
+		case vscode.DiagnosticSeverity.Hint:
+			return 'hint';
+	}
+}
+
+function diagnosticCode(code: vscode.Diagnostic['code']): string | undefined {
+	if (code === undefined) {
+		return undefined;
+	}
+	return String(typeof code === 'object' ? code.value : code);
 }
 
 function enabledFilesExcludeGlobs(root: vscode.Uri): string[] {

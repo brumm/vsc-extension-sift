@@ -4,6 +4,7 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 
 - Sift the active editor or the entire project from the Command Palette.
 - Sift workspace paths, edit matching names, and save to move or rename files.
+- Sift current Problems by path, source line, severity, message, source, or code.
 - Review and edit working-tree changes against the current commit with **Sift: Diff Against HEAD**.
 - Open the inferred reflog comparison directly with **Sift: Diff Against Base Branch**.
 - Choose the inferred base branch, upstream branch, or a grouped local branch, remote branch, or tag with **Sift: Diff Against…**.

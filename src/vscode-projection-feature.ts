@@ -9,7 +9,9 @@ import {
   FilterQuery,
   formatSourceLineNumber,
   makeFilterMatchFinder,
+  ProblemSeverity,
   ProjectionDocument,
+  ProjectionProblem,
   SourceLocation,
   SourcePosition,
 } from './projection-document'
@@ -46,6 +48,7 @@ interface FilterSessionRuntime {
 interface RefreshOptions {
   force?: boolean
   preserveEditorState?: boolean
+  silentWhenDirty?: boolean
 }
 
 interface SelectionAnchor {
@@ -64,7 +67,11 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const projectSearch = new FffProjectSearch((rootUri) => {
     for (const session of sessions.values()) {
       if (
-        session.target.kind !== 'file' &&
+        (
+          session.target.kind === 'project' ||
+          session.target.kind === 'paths' ||
+          session.target.kind === 'diff'
+        ) &&
         session.target.rootUri === rootUri
       ) {
         if (
@@ -124,6 +131,24 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     },
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
+
+  const problemDecorations: Record<
+    ProblemSeverity,
+    vscode.TextEditorDecorationType
+  > = {
+    error: vscode.window.createTextEditorDecorationType({
+      after: { color: new vscode.ThemeColor('problemsErrorIcon.foreground') },
+    }),
+    warning: vscode.window.createTextEditorDecorationType({
+      after: { color: new vscode.ThemeColor('problemsWarningIcon.foreground') },
+    }),
+    information: vscode.window.createTextEditorDecorationType({
+      after: { color: new vscode.ThemeColor('problemsInfoIcon.foreground') },
+    }),
+    hint: vscode.window.createTextEditorDecorationType({
+      after: { color: new vscode.ThemeColor('problemsInfoIcon.foreground') },
+    }),
+  }
 
   const addedLineDecoration = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
@@ -237,7 +262,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         ? 'Sift Paths'
         : session.target.kind === 'diff'
           ? 'Sift Diff'
-          : 'Sift Project'
+          : session.target.kind === 'problems'
+            ? 'Sift Problems'
+            : 'Sift Project'
     const runtime = {
       virtualUri: makeVirtualUri(session.id, title),
     }
@@ -324,6 +351,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     editor.setDecorations(lineNumberDecoration, [])
     editor.setDecorations(fileHeaderDecoration, [])
     editor.setDecorations(pathGitStatusDecoration, [])
+    for (const decoration of Object.values(problemDecorations)) {
+      editor.setDecorations(decoration, [])
+    }
     editor.setDecorations(matchHighlightDecoration, [])
     editor.setDecorations(addedLineDecoration, [])
     editor.setDecorations(deletedLineDecoration, [])
@@ -489,6 +519,34 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           : [],
       ),
     )
+    for (const [severity, decoration] of Object.entries(problemDecorations) as [
+      ProblemSeverity,
+      vscode.TextEditorDecorationType,
+    ][]) {
+      editor.setDecorations(
+        decoration,
+        session.projection.rows.flatMap((row, line) => {
+          if (
+            row.kind !== 'mapped' ||
+            !row.problems ||
+            primaryProblemSeverity(row.problems) !== severity
+          ) {
+            return []
+          }
+          const lineEnd = editor.document.lineAt(line).range.end
+          return [{
+            range: new vscode.Range(lineEnd, lineEnd),
+            renderOptions: {
+              after: {
+                contentText: formatProblemDecoration(row.problems),
+                margin: '0 0 0 1.5em',
+              },
+            },
+            hoverMessage: problemHover(row.problems),
+          }]
+        }),
+      )
+    }
     editor.setDecorations(
       addedLineDecoration,
       session.projection.rows.flatMap((row, line) =>
@@ -537,7 +595,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           return []
         }
         const line = editor.document.lineAt(projectedLine).text
-        const matches = session.target.kind === 'project' || session.target.kind === 'diff'
+        const matches = session.target.kind === 'project' ||
+          session.target.kind === 'diff' ||
+          session.target.kind === 'problems'
           ? line === row.baseline ? row.matches ?? [] : []
           : findMatches(line)
         return matches.map(
@@ -721,6 +781,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const refresh = async (
     session: ProjectionSession,
     preserveEditorState = true,
+    silentWhenDirty = false,
   ): Promise<void> => {
     const openProjection = vscode.workspace.textDocuments.find(
       (document) => document.uri.toString() === runtimeFor(session).virtualUri.toString(),
@@ -736,9 +797,11 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       dirty,
     })
     if (outcome.kind === 'blocked-dirty') {
-      void vscode.window.showInformationMessage(
-        'Save the sifted document before changing its query.',
-      )
+      if (!silentWhenDirty) {
+        void vscode.window.showInformationMessage(
+          'Save the sifted document before changing its query.',
+        )
+      }
       return
     }
     if (
@@ -760,6 +823,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     const {
       force = false,
       preserveEditorState = true,
+      silentWhenDirty = false,
     } = options
     const runtime = runtimeFor(session)
     if (!preserveEditorState) {
@@ -787,7 +851,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     runtimeFor(session).refreshTimer = setTimeout(
       () => {
         runtimeFor(session).refreshTimer = undefined
-        void refresh(session, preserveEditorState)
+        void refresh(session, preserveEditorState, silentWhenDirty)
       },
       30,
     )
@@ -801,14 +865,18 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         ? 'Sift Paths'
         : session.target.kind === 'diff'
           ? 'Sift Diff'
-          : 'Sift Editor'
+          : session.target.kind === 'problems'
+            ? 'Sift Problems'
+            : 'Sift Editor'
     input.prompt = session.target.kind === 'project'
       ? 'Case-insensitive unless Match Case is enabled; fff path and Git constraints are supported'
       : session.target.kind === 'paths'
         ? 'FFF fuzzy path search; inline glob, exclusion, and Git constraints are supported'
         : session.target.kind === 'diff'
           ? 'Leading FFF path constraints, then optional changed-line content'
-          : 'Literal, case-insensitive substring'
+          : session.target.kind === 'problems'
+            ? 'Filter by path, source text, severity, message, source, or code'
+            : 'Literal, case-insensitive substring'
     input.value = session.filter.text
     input.ignoreFocusOut = true
     input.onDidChangeValue((value) => {
@@ -944,6 +1012,34 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       },
       filter: {
         text: initialQuery,
+        matchCase: false,
+        wholeWord: false,
+        useRegex: false,
+        contextLines: 0,
+      },
+      languageId: 'plaintext',
+    })
+    runtimeFor(session).sourceViewColumn =
+      sourceViewColumn ??
+      vscode.window.visibleTextEditors.find(
+        (editor) => editor.document.uri.scheme !== scheme,
+      )?.viewColumn ??
+      vscode.ViewColumn.One
+    await refresh(session)
+    const hasInset = await showSession(session, true)
+    if (!hasInset) {
+      showFilterInput(session)
+    }
+  }
+
+  const openProblems = async (
+    sourceViewColumn?: vscode.ViewColumn,
+  ): Promise<void> => {
+    const session = sessions.open({
+      id: randomUUID(),
+      target: { kind: 'problems' },
+      filter: {
+        text: '',
         matchCase: false,
         wholeWord: false,
         useRegex: false,
@@ -1267,7 +1363,13 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }
     if (
       session.target.kind !== 'paths' &&
-      (refreshAfterSave || (session.target.kind === 'diff' && outcome.editCount > 0))
+      (
+        refreshAfterSave ||
+        (
+          (session.target.kind === 'diff' || session.target.kind === 'problems') &&
+          outcome.editCount > 0
+        )
+      )
     ) {
       setTimeout(() => scheduleRefresh(session, { force: true }), 0)
     }
@@ -1286,7 +1388,11 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
   const refreshGitSessions = (rootUri: string): void => {
     for (const session of sessions.values()) {
       if (
-        session.target.kind !== 'file' &&
+        (
+          session.target.kind === 'project' ||
+          session.target.kind === 'paths' ||
+          session.target.kind === 'diff'
+        ) &&
         session.target.rootUri === rootUri
       ) {
         scheduleRefresh(session)
@@ -1338,6 +1444,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     lineNumberDecoration,
     fileHeaderDecoration,
     pathGitStatusDecoration,
+    ...Object.values(problemDecorations),
     matchHighlightDecoration,
     addedLineDecoration,
     deletedLineDecoration,
@@ -1471,6 +1578,14 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         )
       },
     ),
+    vscode.commands.registerCommand('sift.siftProblems', async () => {
+      const sourceEditor = vscode.window.activeTextEditor
+      await openProblems(
+        sourceEditor?.document.uri.scheme === scheme
+          ? undefined
+          : sourceEditor?.viewColumn,
+      )
+    }),
     vscode.commands.registerCommand(
       'sift.siftDiff',
       async () => {
@@ -1907,8 +2022,19 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         return
       }
       for (const session of sessions.values()) {
-        if (session.target.kind !== 'file') {
+        if (
+          session.target.kind === 'project' ||
+          session.target.kind === 'paths' ||
+          session.target.kind === 'diff'
+        ) {
           scheduleRefresh(session)
+        }
+      }
+    }),
+    vscode.languages.onDidChangeDiagnostics(() => {
+      for (const session of sessions.values()) {
+        if (session.target.kind === 'problems') {
+          scheduleRefresh(session, { silentWhenDirty: true })
         }
       }
     }),
@@ -2199,4 +2325,62 @@ function gitStatusColor(status: string): string {
 
 function formatGitStatus(status: string): string {
   return status.replaceAll('_', ' ')
+}
+
+function primaryProblemSeverity(
+  problems: readonly ProjectionProblem[],
+): ProblemSeverity {
+  return problems.reduce<ProblemSeverity>(
+    (primary, problem) =>
+      problemSeverityRank(problem.severity) < problemSeverityRank(primary)
+        ? problem.severity
+        : primary,
+    'hint',
+  )
+}
+
+function problemSeverityRank(severity: ProblemSeverity): number {
+  return ['error', 'warning', 'information', 'hint'].indexOf(severity)
+}
+
+function formatProblemDecoration(
+  problems: readonly ProjectionProblem[],
+): string {
+  const primary = problems.find(
+    (problem) => problem.severity === primaryProblemSeverity(problems),
+  ) ?? problems[0]
+  const fullMessage = primary.message.replaceAll(/\s+/g, ' ')
+  const message = fullMessage.length > 160
+    ? `${fullMessage.slice(0, 159)}…`
+    : fullMessage
+  const origin = [primary.source, primary.code].filter(Boolean).join(' ')
+  const more = problems.length > 1 ? ` (+${problems.length - 1})` : ''
+  return ` ${problemSeverityMarker(primary.severity)} ${message}${origin ? ` [${origin}]` : ''}${more}`
+}
+
+function problemSeverityMarker(severity: ProblemSeverity): string {
+  switch (severity) {
+    case 'error':
+      return '×'
+    case 'warning':
+      return '⚠'
+    case 'information':
+      return 'ⓘ'
+    case 'hint':
+      return '•'
+  }
+}
+
+function problemHover(problems: readonly ProjectionProblem[]): vscode.MarkdownString {
+  const hover = new vscode.MarkdownString()
+  for (const [index, problem] of problems.entries()) {
+    if (index > 0) {
+      hover.appendText('\n\n')
+    }
+    const origin = [problem.source, problem.code].filter(Boolean).join(' ')
+    hover.appendText(
+      `${problem.severity}: ${problem.message}${origin ? ` [${origin}]` : ''}`,
+    )
+  }
+  return hover
 }

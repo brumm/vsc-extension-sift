@@ -37,10 +37,12 @@ export type ProjectionRow =
 	| {
 		kind: 'mapped';
 		source: SourceLine;
+		sourceCharacter?: number;
 		baseline: string;
 		role?: 'path';
 		gitStatus?: string;
 		matches?: readonly FilterMatch[];
+		problems?: readonly ProjectionProblem[];
 		change?: 'added';
 		hunkStart?: boolean;
 	}
@@ -84,6 +86,23 @@ export interface PathProjectionInput {
 	uri?: string;
 	relativePath: string;
 	gitStatus?: string;
+}
+
+export type ProblemSeverity = 'error' | 'warning' | 'information' | 'hint';
+
+export interface ProjectionProblem {
+	severity: ProblemSeverity;
+	message: string;
+	source?: string;
+	code?: string;
+}
+
+export interface ProblemProjectionInput extends ProjectionProblem {
+	uri: string;
+	relativePath: string;
+	line: number;
+	character: number;
+	text: string;
 }
 
 export interface DiffProjectionFile {
@@ -201,6 +220,105 @@ export class ProjectionDocument {
 				1,
 				...matches.map(match => match.line + 1),
 			),
+		);
+	}
+
+	static forProblems(
+		problems: readonly ProblemProjectionInput[],
+		filter: FilterQuery,
+	): ProjectionDocument {
+		const findMatches = makeFilterMatchFinder(filter);
+		const hasFilter = filter.text.length > 0;
+		const grouped = new Map<string, {
+			uri: string;
+			relativePath: string;
+			line: number;
+			character: number;
+			text: string;
+			matches: FilterMatch[];
+			problems: ProjectionProblem[];
+		}>();
+
+		const orderedProblems = [...problems].sort((left, right) =>
+			left.relativePath.localeCompare(right.relativePath) ||
+			left.uri.localeCompare(right.uri) ||
+			left.line - right.line ||
+			problemSeverityOrder(left.severity) - problemSeverityOrder(right.severity) ||
+			left.character - right.character,
+		);
+		for (const problem of orderedProblems) {
+			const searchable = [
+				problem.relativePath,
+				problem.text,
+				problem.severity,
+				problem.message,
+				problem.source,
+				problem.code,
+			].filter(Boolean).join(' ');
+			if (hasFilter && findMatches(searchable).length === 0) {
+				continue;
+			}
+			const key = `${problem.uri}\0${problem.line}`;
+			const existing = grouped.get(key);
+			const metadata = {
+				severity: problem.severity,
+				message: problem.message,
+				source: problem.source,
+				code: problem.code,
+			};
+			if (existing) {
+				existing.character = Math.min(existing.character, problem.character);
+				existing.problems.push(metadata);
+				continue;
+			}
+			grouped.set(key, {
+				uri: problem.uri,
+				relativePath: problem.relativePath,
+				line: problem.line,
+				character: problem.character,
+				text: problem.text,
+				matches: findMatches(problem.text),
+				problems: [metadata],
+			});
+		}
+
+		const content: string[] = [];
+		const rows: ProjectionRow[] = [];
+		let currentUri: string | undefined;
+		let maximumLine = 0;
+		for (const group of grouped.values()) {
+			if (group.uri !== currentUri) {
+				if (currentUri !== undefined) {
+					content.push('');
+					rows.push({ kind: 'annotation', role: 'spacer' });
+				}
+				currentUri = group.uri;
+				content.push('');
+				rows.push({
+					kind: 'annotation',
+					role: 'header',
+					label: group.relativePath,
+					sourceUri: group.uri,
+				});
+			}
+			maximumLine = Math.max(maximumLine, group.line);
+			content.push(group.text);
+			rows.push({
+				kind: 'mapped',
+				source: { uri: group.uri, line: group.line },
+				sourceCharacter: group.character,
+				baseline: group.text,
+				matches: group.matches,
+				problems: group.problems,
+			});
+		}
+
+		return new ProjectionDocument(
+			content.join('\n'),
+			rows.length > 0
+				? rows
+				: [{ kind: 'annotation', role: 'message' }],
+			maximumLine + 1,
 		);
 	}
 
@@ -343,7 +461,10 @@ export class ProjectionDocument {
 	sourceAt(projectedLine: number, character: number): SourceLocation | undefined {
 		const row = this.rows[projectedLine];
 		if (row?.kind === 'mapped') {
-			return { ...row.source, character: row.role === 'path' ? 0 : character };
+			return {
+				...row.source,
+				character: row.sourceCharacter ?? (row.role === 'path' ? 0 : character),
+			};
 		}
 		if (row?.kind === 'annotation' && row.role === 'header') {
 			const next = this.rows
@@ -502,6 +623,10 @@ function makeLineMatcher(filter: FilterQuery): (line: string) => boolean {
 	}
 	const expression = makeFilterExpression(filter);
 	return line => expression.test(line);
+}
+
+function problemSeverityOrder(severity: ProblemSeverity): number {
+	return ['error', 'warning', 'information', 'hint'].indexOf(severity);
 }
 
 export function findFilterMatches(
