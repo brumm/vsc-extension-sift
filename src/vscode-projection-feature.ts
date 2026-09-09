@@ -1509,6 +1509,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           (document) => vscode.workspace.getWorkspaceFolder(document.uri),
           vscode.workspace.workspaceFolders,
           (folder) => folder.uri.scheme === 'file',
+          (document) => document.isUntitled,
         )
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
@@ -1555,6 +1556,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           (document) => vscode.workspace.getWorkspaceFolder(document.uri),
           vscode.workspace.workspaceFolders,
           (folder) => folder.uri.scheme === 'file',
+          (document) => document.isUntitled,
         )
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
@@ -1598,6 +1600,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           (document) => vscode.workspace.getWorkspaceFolder(document.uri),
           vscode.workspace.workspaceFolders,
           (folder) => folder.uri.scheme === 'file',
+          (document) => document.isUntitled,
         )
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
@@ -1628,6 +1631,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           (document) => vscode.workspace.getWorkspaceFolder(document.uri),
           vscode.workspace.workspaceFolders,
           (folder) => folder.uri.scheme === 'file',
+          (document) => document.isUntitled,
         )
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
@@ -1676,6 +1680,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           (document) => vscode.workspace.getWorkspaceFolder(document.uri),
           vscode.workspace.workspaceFolders,
           (folder) => folder.uri.scheme === 'file',
+          (document) => document.isUntitled,
         )
         if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
           void vscode.window.showWarningMessage(
@@ -1764,6 +1769,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         (document) => vscode.workspace.getWorkspaceFolder(document.uri),
         vscode.workspace.workspaceFolders,
         (folder) => folder.uri.scheme === 'file',
+        (document) => document.isUntitled,
       )
       if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
         void vscode.window.showWarningMessage(

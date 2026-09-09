@@ -8,6 +8,7 @@ export function selectProjectWorkspace<Document, WorkspaceFolder>(
   getWorkspaceFolder: (document: Document) => WorkspaceFolder | undefined,
   workspaceFolders: readonly WorkspaceFolder[] | undefined,
   isLocal: (folder: WorkspaceFolder) => boolean,
+  isUnscopedSource: (document: Document) => boolean = () => false,
 ): ProjectWorkspaceSelection<Document, WorkspaceFolder> {
   const activeWorkspaceFolder = activeDocument
     ? getWorkspaceFolder(activeDocument)
@@ -18,5 +19,11 @@ export function selectProjectWorkspace<Document, WorkspaceFolder>(
       sourceDocument: activeDocument,
     }
   }
-  return { workspaceFolder: workspaceFolders?.find(isLocal) }
+  return {
+    workspaceFolder: workspaceFolders?.find(isLocal),
+    sourceDocument:
+      activeDocument && isUnscopedSource(activeDocument)
+        ? activeDocument
+        : undefined,
+  }
 }

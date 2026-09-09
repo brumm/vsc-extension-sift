@@ -4,6 +4,7 @@ import { selectProjectWorkspace } from '../project-workspace'
 
 interface Document {
   workspace?: string
+  untitled?: boolean
 }
 
 interface WorkspaceFolder {
@@ -13,14 +14,29 @@ interface WorkspaceFolder {
 
 const localWorkspace = { name: 'local', scheme: 'file' }
 
-test('falls back to an open local workspace for an untitled editor', () => {
-  const untitledDocument: Document = {}
+test('falls back to an open local workspace and keeps an untitled source', () => {
+  const untitledDocument: Document = { untitled: true }
   const selection = selectProjectWorkspace(
     untitledDocument,
     (document) =>
       document.workspace === localWorkspace.name ? localWorkspace : undefined,
     [localWorkspace],
     (folder) => folder.scheme === 'file',
+    (document) => document.untitled === true,
+  )
+
+  assert.equal(selection.workspaceFolder, localWorkspace)
+  assert.equal(selection.sourceDocument, untitledDocument)
+})
+
+test('does not use an unrelated scoped document as the source', () => {
+  const unrelatedDocument: Document = {}
+  const selection = selectProjectWorkspace(
+    unrelatedDocument,
+    () => undefined,
+    [localWorkspace],
+    (folder) => folder.scheme === 'file',
+    (document) => document.untitled === true,
   )
 
   assert.equal(selection.workspaceFolder, localWorkspace)
