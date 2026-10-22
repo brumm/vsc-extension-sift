@@ -41,6 +41,7 @@ interface FilterSessionRuntime {
   sourceRevealGeneration?: number
   resetEditorPosition?: boolean
   refreshTimer?: NodeJS.Timeout
+  pendingRefresh?: { preserveEditorState: boolean; silentWhenDirty: boolean }
   renderTimer?: NodeJS.Timeout
   suppressSourceRefreshUntil?: number
   holdPathResults?: boolean
@@ -1020,13 +1021,28 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     ) {
       return
     }
-    if (runtimeFor(session).refreshTimer) {
-      clearTimeout(runtimeFor(session).refreshTimer)
+    // A debounced refresh replaces the pending one, so keep the stricter
+    // options: a query change must still reset the editor position even if a
+    // watcher-driven refresh arrives right after it.
+    const pending = runtime.refreshTimer ? runtime.pendingRefresh : undefined
+    const merged = {
+      preserveEditorState:
+        preserveEditorState && (pending?.preserveEditorState ?? true),
+      silentWhenDirty: silentWhenDirty && (pending?.silentWhenDirty ?? true),
     }
-    runtimeFor(session).refreshTimer = setTimeout(
+    if (runtime.refreshTimer) {
+      clearTimeout(runtime.refreshTimer)
+    }
+    runtime.pendingRefresh = merged
+    runtime.refreshTimer = setTimeout(
       () => {
-        runtimeFor(session).refreshTimer = undefined
-        void refresh(session, preserveEditorState, silentWhenDirty)
+        runtime.refreshTimer = undefined
+        runtime.pendingRefresh = undefined
+        void refresh(
+          session,
+          merged.preserveEditorState,
+          merged.silentWhenDirty,
+        )
       },
       session.target.kind === 'project' ? 120 : 30,
     )
