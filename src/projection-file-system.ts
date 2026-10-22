@@ -29,6 +29,10 @@ export class ProjectionFileSystem implements vscode.FileSystemProvider {
 		}
 	}
 
+	has(uri: vscode.Uri): boolean {
+		return this.files.has(uri.toString());
+	}
+
 	forget(uri: vscode.Uri): void {
 		this.files.delete(uri.toString());
 	}

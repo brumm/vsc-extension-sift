@@ -64,6 +64,7 @@ interface QueryCapture {
 }
 
 const queryCaptureTimeoutMs = 10_000
+const initialRenderWaitMs = 75
 
 interface RefreshOptions {
   force?: boolean
@@ -1114,6 +1115,36 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     return hasInset
   }
 
+  /**
+   * Opens a new session's editor. Slow builds (e.g. the first project search
+   * while fff indexes) show a placeholder instead of keeping focus in the
+   * source editor, where early keystrokes would edit the user's file.
+   */
+  const presentSession = async (
+    session: ProjectionSession,
+    focusFilterInput: boolean,
+    viewColumn: vscode.ViewColumn = vscode.ViewColumn.Beside,
+  ): Promise<void> => {
+    const refreshed = refresh(session)
+    let timer: NodeJS.Timeout | undefined
+    await Promise.race([
+      refreshed,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, initialRenderWaitMs)
+      }),
+    ])
+    clearTimeout(timer)
+    const uri = runtimeFor(session).virtualUri
+    if (!provider.has(uri)) {
+      provider.seed(uri, 'Sifting…', false)
+    }
+    const hasInset = await showSession(session, focusFilterInput, viewColumn)
+    if (focusFilterInput && !hasInset) {
+      showFilterInput(session)
+    }
+    await refreshed
+  }
+
   const openProjectSearch = async (
     workspaceFolder: vscode.WorkspaceFolder,
     filter: FilterQuery,
@@ -1138,11 +1169,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       )?.viewColumn ??
       vscode.window.activeTextEditor?.viewColumn ??
       vscode.ViewColumn.One
-    await refresh(session)
-    const hasInset = await showSession(session, focusFilterInput, viewColumn)
-    if (focusFilterInput && !hasInset) {
-      showFilterInput(session)
-    }
+    await presentSession(session, focusFilterInput, viewColumn)
   }
 
   const openPathSearch = async (
@@ -1174,11 +1201,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       )?.viewColumn ??
       vscode.window.activeTextEditor?.viewColumn ??
       vscode.ViewColumn.One
-    await refresh(session)
-    const hasInset = await showSession(session, focusFilterInput, viewColumn)
-    if (focusFilterInput && !hasInset) {
-      showFilterInput(session)
-    }
+    await presentSession(session, focusFilterInput, viewColumn)
   }
 
   const openDiff = async (
@@ -1211,11 +1234,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         (editor) => editor.document.uri.scheme !== scheme,
       )?.viewColumn ??
       vscode.ViewColumn.One
-    await refresh(session)
-    const hasInset = await showSession(session, true)
-    if (!hasInset) {
-      showFilterInput(session)
-    }
+    await presentSession(session, true)
   }
 
   const openProblems = async (
@@ -1239,11 +1258,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         (editor) => editor.document.uri.scheme !== scheme,
       )?.viewColumn ??
       vscode.ViewColumn.One
-    await refresh(session)
-    const hasInset = await showSession(session, true)
-    if (!hasInset) {
-      showFilterInput(session)
-    }
+    await presentSession(session, true)
   }
 
   const searchProjectFromFile = async (
@@ -1678,11 +1693,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           languageId: sourceEditor.document.languageId,
         })
         runtimeFor(session).sourceViewColumn = sourceEditor.viewColumn
-        await refresh(session)
-        const hasInset = await showSession(session, true)
-        if (!hasInset) {
-          showFilterInput(session)
-        }
+        await presentSession(session, true)
       },
     ),
     vscode.commands.registerCommand(
@@ -1943,13 +1954,14 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         const initialQuery = sourceEditor && sourceDocument
           ? sourceDocument.getText(sourceEditor.selections[0])
           : ''
-      await openDiff(
-        workspaceFolder,
-        selected.ref,
-        initialQuery,
-        sourceEditor?.viewColumn,
-      )
-    }),
+        await openDiff(
+          workspaceFolder,
+          selected.ref,
+          initialQuery,
+          sourceEditor?.viewColumn,
+        )
+      },
+    ),
     vscode.commands.registerCommand('sift.siftCommit', async () => {
       const sourceEditor = vscode.window.activeTextEditor
       const activeDocument =
