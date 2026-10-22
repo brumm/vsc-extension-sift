@@ -213,11 +213,47 @@
       contextLines: initialState.contextLines,
     }
     let querySequence = 0
+    // Text typed into the editor before this input had focus, forwarded by the
+    // extension. Closed once the user types here directly.
+    let capture
     input.value = initialState.query
     const focusInput = selectAll => {
+      const keepCaret = capture !== undefined && !capture.closed
       input.focus()
+      if (keepCaret) {
+        return
+      }
       const start = selectAll ? 0 : input.value.length
       input.setSelectionRange(start, input.value.length)
+    }
+    const emitQuery = () => {
+      querySequence += 1
+      vscode.postMessage({
+        type: 'query',
+        value: input.value,
+        querySequence,
+      })
+    }
+    const applyCapturedText = message => {
+      if (capture?.id !== message.capture) {
+        capture = {
+          id: message.capture,
+          closed: false,
+          value: input.value,
+          start: input.selectionStart ?? input.value.length,
+          end: input.selectionEnd ?? input.value.length,
+        }
+      }
+      if (capture.closed) {
+        return
+      }
+      input.value =
+        capture.value.slice(0, capture.start) +
+        message.text +
+        capture.value.slice(capture.end)
+      const caret = capture.start + message.text.length
+      input.setSelectionRange(caret, caret)
+      emitQuery()
     }
     const focusInputAfterLayout = selectAll => {
       requestAnimationFrame(() => {
@@ -263,12 +299,13 @@
     renderOptions()
     renderContext()
     input.addEventListener('input', () => {
-      querySequence += 1
-      vscode.postMessage({
-        type: 'query',
-        value: input.value,
-        querySequence,
-      })
+      if (capture) {
+        capture.closed = true
+      }
+      emitQuery()
+    })
+    input.addEventListener('focus', () => {
+      vscode.postMessage({ type: 'focused' })
     })
 
     input.addEventListener('keydown', event => {
@@ -318,6 +355,8 @@
         renderContext()
       } else if (message.type === 'focus') {
         focusInputAfterLayout(message.selectAll)
+      } else if (message.type === 'capturedText') {
+        applyCapturedText(message)
       }
     })
     vscode.postMessage({ type: 'ready' })

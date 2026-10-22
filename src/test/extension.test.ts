@@ -201,6 +201,34 @@ suite('Extension Test Suite', () => {
 		}
 	});
 
+	test('keystrokes typed into a new Sift editor move into its query', async function () {
+		this.timeout(10_000);
+		const sourceDocument = await vscode.workspace.openTextDocument({
+			content: 'alpha\nbeta\nalphabet\ngamma',
+		});
+		await vscode.window.showTextDocument(sourceDocument);
+		try {
+			await vscode.commands.executeCommand('sift.siftEditor');
+			const siftEditor = vscode.window.activeTextEditor;
+			assert.equal(siftEditor?.document.uri.scheme, 'sift-editor');
+			await vscode.commands.executeCommand('type', { text: 'alp' });
+
+			const deadline = Date.now() + 5_000;
+			while (
+				Date.now() < deadline &&
+				(siftEditor.document.isDirty ||
+					siftEditor.document.getText() !== 'alpha\nalphabet')
+			) {
+				await new Promise(resolve => setTimeout(resolve, 50));
+			}
+			assert.equal(siftEditor.document.isDirty, false);
+			assert.equal(siftEditor.document.getText(), 'alpha\nalphabet');
+		} finally {
+			await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+		}
+	});
+
 	test('Find uses the current SIFT selection as the query', () => {
 		const extension = vscode.extensions.getExtension(extensionId);
 		assert.ok(extension);

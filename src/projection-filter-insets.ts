@@ -18,6 +18,8 @@ interface FilterInsetEntry {
   inset: vscode.WebviewEditorInset
   focusInput: boolean
   querySequence: number
+  ready: boolean
+  pendingCapture?: { capture: number; text: string }
 }
 
 export interface ProjectionFilterInsetCallbacks {
@@ -25,6 +27,7 @@ export interface ProjectionFilterInsetCallbacks {
   onClose(session: ProjectionSession): void
   onOpenSource(): void
   onSearchProject(session: ProjectionSession, filter: FilterQuery): void
+  onInputFocused(editor: vscode.TextEditor): void
   onUnavailable(message: string): void
 }
 
@@ -68,6 +71,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         inset,
         focusInput,
         querySequence: 0,
+        ready: false,
       }
       this.entries.set(editor, entry)
       const messageSubscription = inset.webview.onDidReceiveMessage(
@@ -106,6 +110,27 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         })
       }
     }
+  }
+
+  /**
+   * Mirrors text that was typed into the editor before the query input had
+   * focus. Each call carries the whole captured text, so the webview can
+   * replace its previous copy instead of appending.
+   */
+  showCapturedText(
+    editor: vscode.TextEditor,
+    capture: number,
+    text: string,
+  ): void {
+    const entry = this.entries.get(editor)
+    if (!entry) {
+      return
+    }
+    if (!entry.ready) {
+      entry.pendingCapture = { capture, text }
+      return
+    }
+    void entry.inset.webview.postMessage({ type: 'capturedText', capture, text })
   }
 
   dispose(): void {
@@ -155,6 +180,7 @@ export class ProjectionFilterInsets implements vscode.Disposable {
         return
       }
       case 'ready': {
+        entry.ready = true
         this.sync(session)
         if (entry.focusInput) {
           void inset.webview.postMessage({
@@ -162,8 +188,18 @@ export class ProjectionFilterInsets implements vscode.Disposable {
             selectAll: session.filter.text.length > 0,
           })
         }
+        if (entry.pendingCapture) {
+          void inset.webview.postMessage({
+            type: 'capturedText',
+            ...entry.pendingCapture,
+          })
+          entry.pendingCapture = undefined
+        }
         return
       }
+      case 'focused':
+        this.callbacks.onInputFocused(editor)
+        return
       case 'focusEditor': {
         const documentStart = new vscode.Position(0, 0)
         editor.selection = new vscode.Selection(documentStart, documentStart)

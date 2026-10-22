@@ -23,6 +23,7 @@ import {
   ProjectionSession,
   ProjectionSessions,
 } from './projection-sessions'
+import { capturedQueryText, isTypingChange } from './query-capture'
 import { VscodeProjectionBuilder } from './vscode-projection-builder'
 
 const scheme = 'sift-editor'
@@ -43,7 +44,26 @@ interface FilterSessionRuntime {
   renderTimer?: NodeJS.Timeout
   suppressSourceRefreshUntil?: number
   holdPathResults?: boolean
+  queryCapture?: QueryCapture
+  refreshBlockedByDirty?: boolean
+  dirtyPromptVisible?: boolean
 }
+
+/**
+ * Keystrokes that land in the projection editor while its query input is
+ * still loading. They are mirrored into the query and reverted from the
+ * editor once the input takes focus.
+ */
+interface QueryCapture {
+  id: number
+  editor: vscode.TextEditor
+  baseline: string
+  startOffset: number
+  text: string
+  timer: NodeJS.Timeout
+}
+
+const queryCaptureTimeoutMs = 10_000
 
 interface RefreshOptions {
   force?: boolean
@@ -248,8 +268,155 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     onSearchProject: (session, filter) => {
       void searchProjectFromFile(session, filter)
     },
+    onInputFocused: (editor) => {
+      const session = sessions.get(sessionId(editor.document.uri))
+      if (session) {
+        void finishQueryCapture(session, true)
+      }
+    },
     onUnavailable: (message) => output.appendLine(message),
   })
+
+  let nextQueryCapture = 0
+
+  const beginQueryCapture = (
+    editor: vscode.TextEditor,
+    session: ProjectionSession,
+    startOffset: number,
+  ): void => {
+    const runtime = runtimeFor(session)
+    if (runtime.queryCapture) {
+      clearTimeout(runtime.queryCapture.timer)
+      runtime.queryCapture = undefined
+    }
+    const baseline = providedContent(editor.document.uri)
+    if (baseline === undefined) {
+      return
+    }
+    runtime.queryCapture = {
+      id: ++nextQueryCapture,
+      editor,
+      baseline,
+      startOffset,
+      text: '',
+      timer: setTimeout(
+        () => void finishQueryCapture(session, false),
+        queryCaptureTimeoutMs,
+      ),
+    }
+  }
+
+  const providedContent = (uri: vscode.Uri): string | undefined => {
+    try {
+      return new TextDecoder().decode(provider.readFile(uri))
+    } catch {
+      return undefined
+    }
+  }
+
+  const captureFor = (
+    document: vscode.TextDocument,
+  ): QueryCapture | undefined => {
+    if (document.uri.scheme !== scheme) {
+      return undefined
+    }
+    const session = sessions.get(sessionId(document.uri))
+    const capture = session && sessionRuntimes.get(session.id)?.queryCapture
+    return capture?.editor.document === document ? capture : undefined
+  }
+
+  const updateQueryCapture = (capture: QueryCapture): void => {
+    const { document, selection } = capture.editor
+    const text = document.getText()
+    const typed = text === capture.baseline
+      ? ''
+      : capturedQueryText(
+          capture.baseline,
+          text,
+          capture.startOffset,
+          document.offsetAt(selection.active),
+        )
+    if (typed !== undefined && typed !== capture.text) {
+      capture.text = typed
+      filterInsets.showCapturedText(capture.editor, capture.id, typed)
+    }
+  }
+
+  const finishQueryCapture = async (
+    session: ProjectionSession,
+    revert: boolean,
+  ): Promise<void> => {
+    const runtime = sessionRuntimes.get(session.id)
+    const capture = runtime?.queryCapture
+    if (!runtime || !capture) {
+      return
+    }
+    if (revert) {
+      updateQueryCapture(capture)
+    }
+    clearTimeout(capture.timer)
+    runtime.queryCapture = undefined
+    const document = capture.editor.document
+    if (!document.isDirty) {
+      return
+    }
+    if (
+      revert &&
+      vscode.window.activeTextEditor?.document === document
+    ) {
+      await vscode.commands.executeCommand('workbench.action.files.revert')
+    }
+    if (document.isDirty) {
+      void sessions.execute(session.id, { kind: 'working-copy-changed' })
+      decorateEditor(capture.editor)
+    }
+  }
+
+  const findProjectionDocument = (
+    session: ProjectionSession,
+  ): vscode.TextDocument | undefined => {
+    const uri = runtimeFor(session).virtualUri.toString()
+    return vscode.workspace.textDocuments.find(
+      (document) => document.uri.toString() === uri,
+    )
+  }
+
+  const promptDirtyProjection = async (
+    session: ProjectionSession,
+  ): Promise<void> => {
+    const runtime = runtimeFor(session)
+    if (runtime.dirtyPromptVisible) {
+      return
+    }
+    runtime.dirtyPromptVisible = true
+    try {
+      const choice = await vscode.window.showWarningMessage(
+        'This Sift view has unsaved edits. Save or discard them to apply the new query.',
+        'Discard Edits',
+        'Save Edits',
+      )
+      const document = findProjectionDocument(session)
+      if (!choice || !document?.isDirty || !sessions.get(session.id)) {
+        return
+      }
+      if (choice === 'Save Edits') {
+        await document.save()
+        return
+      }
+      if (vscode.window.activeTextEditor?.document !== document) {
+        await vscode.window.showTextDocument(document, {
+          viewColumn: vscode.window.visibleTextEditors.find(
+            (editor) => editor.document === document,
+          )?.viewColumn,
+          preview: false,
+        })
+      }
+      await vscode.commands.executeCommand('workbench.action.files.revert')
+      focusQueryInput()
+    } finally {
+      runtime.dirtyPromptVisible = false
+    }
+  }
 
   const runtimeFor = (session: ProjectionSession): FilterSessionRuntime => {
     const existing = sessionRuntimes.get(session.id)
@@ -339,6 +506,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }
     if (runtime?.sourceRevealTimer) {
       clearTimeout(runtime.sourceRevealTimer)
+    }
+    if (runtime?.queryCapture) {
+      clearTimeout(runtime.queryCapture.timer)
     }
     provider.forget(uri)
     sessionRuntimes.delete(id)
@@ -797,10 +967,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       dirty,
     })
     if (outcome.kind === 'blocked-dirty') {
-      if (!silentWhenDirty) {
-        void vscode.window.showInformationMessage(
-          'Save the sifted document before changing its query.',
-        )
+      const runtime = runtimeFor(session)
+      runtime.refreshBlockedByDirty = true
+      if (!silentWhenDirty && !runtime.queryCapture) {
+        void promptDirtyProjection(session)
       }
       return
     }
@@ -828,6 +998,10 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     const runtime = runtimeFor(session)
     if (!preserveEditorState) {
       runtime.resetEditorPosition = true
+    }
+    // While capturing, the cursor marks the end of the captured query text;
+    // restoreAnchors resets it once the refreshed projection arrives.
+    if (!preserveEditorState && !runtime.queryCapture) {
       for (const editor of vscode.window.visibleTextEditors) {
         if (editor.document.uri.toString() === runtime.virtualUri.toString()) {
           editor.selection = new vscode.Selection(0, 0, 0, 0)
@@ -916,14 +1090,26 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             document,
             displayLanguageId,
           )
+    // Record where typing would land before the editor takes focus; anything
+    // typed from here until the query input has focus belongs to the query.
+    const capturable = focusFilterInput && !languageDocument.isDirty
+    const existingEditor = vscode.window.visibleTextEditors.find(
+      (candidate) => candidate.document === languageDocument,
+    )
+    const captureOffset = existingEditor
+      ? languageDocument.offsetAt(existingEditor.selection.active)
+      : 0
     const editor = await vscode.window.showTextDocument(languageDocument, {
       viewColumn,
       preview: showOptions.preview ?? false,
       preserveFocus: showOptions.preserveFocus,
     })
+    const hasInset = filterInsets.ensure(editor, session, focusFilterInput)
+    if (hasInset && capturable) {
+      beginQueryCapture(editor, session, captureOffset)
+    }
     await disableWordWrap(editor)
     decorateEditor(editor)
-    const hasInset = filterInsets.ensure(editor, session, focusFilterInput)
     updateStatus()
     return hasInset
   }
@@ -1246,6 +1432,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     }
     if (!filterInsets.ensure(editor, session, true)) {
       showFilterInput(session)
+    } else if (!editor.document.isDirty) {
+      beginQueryCapture(
+        editor,
+        session,
+        editor.document.offsetAt(editor.selection.active),
+      )
     }
   }
 
@@ -2129,6 +2321,31 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       if (event.document.uri.scheme === scheme) {
         const session = sessions.get(sessionId(event.document.uri))
         if (session) {
+          const runtime = runtimeFor(session)
+          const capture = captureFor(event.document)
+          // isDirty lags behind content changes (VS Code reports the dirty
+          // state in a separate event), so classify by content instead.
+          if (capture && event.contentChanges.length === 0) {
+            if (event.document.isDirty) {
+              return
+            }
+          } else if (capture) {
+            const text = event.document.getText()
+            if (text === providedContent(event.document.uri)) {
+              capture.baseline = text
+              capture.startOffset = Math.min(capture.startOffset, text.length)
+            } else if (
+              event.contentChanges.every((change) =>
+                isTypingChange(change, capture.startOffset),
+              )
+            ) {
+              // Misdirected query keystrokes; the selection event that
+              // follows mirrors them into the query input.
+              return
+            } else {
+              void finishQueryCapture(session, false)
+            }
+          }
           if (event.document.isDirty) {
             void sessions.execute(session.id, { kind: 'working-copy-changed' })
             for (const editor of vscode.window.visibleTextEditors) {
@@ -2139,6 +2356,13 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
             updateStatus()
           } else {
             restoreAnchors(session)
+            if (runtime.refreshBlockedByDirty) {
+              runtime.refreshBlockedByDirty = false
+              scheduleRefresh(session, {
+                force: true,
+                preserveEditorState: false,
+              })
+            }
           }
         }
         return
@@ -2217,6 +2441,29 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       updateStatus()
     }),
     vscode.window.onDidChangeTextEditorSelection((event) => {
+      const capture = captureFor(event.textEditor.document)
+      if (capture) {
+        if (event.kind === vscode.TextEditorSelectionChangeKind.Mouse) {
+          const session = sessions.get(sessionId(event.textEditor.document.uri))
+          if (session) {
+            void finishQueryCapture(session, false)
+          }
+        } else if (
+          capture.text !== '' ||
+          event.textEditor.document.getText() !== capture.baseline
+        ) {
+          if (event.kind !== vscode.TextEditorSelectionChangeKind.Command) {
+            updateQueryCapture(capture)
+          }
+          return
+        } else if (
+          event.kind !== vscode.TextEditorSelectionChangeKind.Keyboard
+        ) {
+          capture.startOffset = event.textEditor.document.offsetAt(
+            event.textEditor.selection.active,
+          )
+        }
+      }
       if (skipProjectAnnotations(event)) {
         return
       }
