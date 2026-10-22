@@ -43,6 +43,7 @@ interface FilterSessionRuntime {
   refreshTimer?: NodeJS.Timeout
   pendingRefresh?: { preserveEditorState: boolean; silentWhenDirty: boolean }
   renderTimer?: NodeJS.Timeout
+  decorateTimer?: NodeJS.Timeout
   suppressSourceRefreshUntil?: number
   holdPathResults?: boolean
   queryCapture?: QueryCapture
@@ -509,6 +510,9 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     if (runtime?.sourceRevealTimer) {
       clearTimeout(runtime.sourceRevealTimer)
     }
+    if (runtime?.decorateTimer) {
+      clearTimeout(runtime.decorateTimer)
+    }
     if (runtime?.queryCapture) {
       clearTimeout(runtime.queryCapture.timer)
     }
@@ -585,11 +589,6 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           matchCount: session.projection.rows.filter(
             (row) => row.kind === 'mapped',
           ).length,
-          sourceLocations: session.projection.rows.flatMap((row) =>
-            row.kind === 'mapped'
-              ? [`${row.source.uri}:${row.source.line + 1}`]
-              : [],
-          ),
           message: session.message,
         })),
         null,
@@ -782,6 +781,24 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         )
       }),
     )
+  }
+
+  const scheduleDecorate = (
+    session: ProjectionSession,
+    document: vscode.TextDocument,
+  ): void => {
+    const runtime = runtimeFor(session)
+    if (runtime.decorateTimer) {
+      clearTimeout(runtime.decorateTimer)
+    }
+    runtime.decorateTimer = setTimeout(() => {
+      runtime.decorateTimer = undefined
+      for (const editor of vscode.window.visibleTextEditors) {
+        if (editor.document === document) {
+          decorateEditor(editor)
+        }
+      }
+    }, 50)
   }
 
   const updateStatus = (): void => {
@@ -2376,11 +2393,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           }
           if (event.document.isDirty) {
             void sessions.execute(session.id, { kind: 'working-copy-changed' })
-            for (const editor of vscode.window.visibleTextEditors) {
-              if (editor.document === event.document) {
-                decorateEditor(editor)
-              }
-            }
+            scheduleDecorate(session, event.document)
             updateStatus()
           } else {
             restoreAnchors(session)
