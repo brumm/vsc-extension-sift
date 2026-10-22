@@ -23,6 +23,10 @@ import {
 	ProjectionTarget,
 } from './projection-sessions';
 import { FilterQuery } from './projection-document';
+import {
+	compileProblemExclusions,
+	ProblemExclusion,
+} from './problem-exclusions';
 
 export class VscodeProjectionBuilder implements ProjectionBuilder {
 	constructor(
@@ -161,6 +165,10 @@ export class VscodeProjectionBuilder implements ProjectionBuilder {
 }
 
 async function loadProblems(): Promise<ProblemProjectionInput[]> {
+	const isExcluded = compileProblemExclusions(
+		vscode.workspace.getConfiguration('sift')
+			.get<ProblemExclusion[]>('problems.exclude', []),
+	);
 	const entries = vscode.languages.getDiagnostics()
 		.filter(([uri, diagnostics]) => uri.scheme === 'file' && diagnostics.length > 0)
 		.sort(([left], [right]) => left.fsPath.localeCompare(right.fsPath));
@@ -171,9 +179,17 @@ async function loadProblems(): Promise<ProblemProjectionInput[]> {
 				uri,
 				(vscode.workspace.workspaceFolders?.length ?? 0) > 1,
 			);
-			return diagnostics.map((diagnostic): ProblemProjectionInput => {
+			return diagnostics.flatMap((diagnostic): ProblemProjectionInput[] => {
+				const code = diagnosticCode(diagnostic.code);
+				if (isExcluded({
+					source: diagnostic.source,
+					message: diagnostic.message,
+					code,
+				})) {
+					return [];
+				}
 				const line = Math.min(diagnostic.range.start.line, document.lineCount - 1);
-				return {
+				return [{
 					uri: uri.toString(),
 					relativePath,
 					line,
@@ -185,8 +201,8 @@ async function loadProblems(): Promise<ProblemProjectionInput[]> {
 					severity: problemSeverity(diagnostic.severity),
 					message: diagnostic.message,
 					source: diagnostic.source,
-					code: diagnosticCode(diagnostic.code),
-				};
+					code,
+				}];
 			});
 		} catch {
 			return [];

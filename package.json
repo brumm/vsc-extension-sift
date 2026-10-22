@@ -55,6 +55,40 @@
         "editor.guides.highlightActiveIndentation": false
       }
     },
+    "configuration": {
+      "title": "Sift",
+      "properties": {
+        "sift.problems.exclude": {
+          "type": "array",
+          "scope": "window",
+          "default": [
+            {
+              "source": "^cSpell$",
+              "message": "^Unknown word"
+            }
+          ],
+          "markdownDescription": "Problems excluded from **Sift Problems**. Each rule's defined fields are regular expressions and must all match. Empty and invalid rules are ignored.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+                "description": "Regular expression matched against the diagnostic source."
+              },
+              "message": {
+                "type": "string",
+                "description": "Regular expression matched against the diagnostic message."
+              },
+              "code": {
+                "type": "string",
+                "description": "Regular expression matched against the diagnostic code."
+              }
+            }
+          }
+        }
+      }
+    },
     "commands": [
       {
         "command": "sift.siftEditor",

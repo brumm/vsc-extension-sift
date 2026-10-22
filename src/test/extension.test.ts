@@ -43,6 +43,17 @@ suite('Extension Test Suite', () => {
 		));
 	});
 
+	test('excludes cSpell unknown-word Problems by default', () => {
+		const extension = vscode.extensions.getExtension(extensionId);
+		assert.ok(extension);
+		const properties = extension.packageJSON.contributes?.configuration
+			?.properties as Record<string, { default?: unknown }> | undefined;
+		assert.deepEqual(properties?.['sift.problems.exclude']?.default, [{
+			source: '^cSpell$',
+			message: '^Unknown word',
+		}]);
+	});
+
 	test('sifts, edits, and refreshes current Problems', async function () {
 		this.timeout(10_000);
 		const rootPath = await mkdtemp(join(tmpdir(), 'sift-problems-'));
@@ -51,16 +62,29 @@ suite('Extension Test Suite', () => {
 		const diagnostics = vscode.languages.createDiagnosticCollection(
 			`sift-test-${randomUUID()}`,
 		);
-		await writeFile(sourceUri.fsPath, 'const broken = true;\n');
+		await writeFile(
+			sourceUri.fsPath,
+			'const broken = true;\nconst colourise = true;\n',
+		);
 		await replaceWorkspaceFolders({ uri: rootUri });
-		diagnostics.set(sourceUri, [Object.assign(
-			new vscode.Diagnostic(
-				new vscode.Range(0, 6, 0, 12),
-				'Unique Sift test problem',
-				vscode.DiagnosticSeverity.Error,
+		diagnostics.set(sourceUri, [
+			Object.assign(
+				new vscode.Diagnostic(
+					new vscode.Range(0, 6, 0, 12),
+					'Unique Sift test problem',
+					vscode.DiagnosticSeverity.Error,
+				),
+				{ source: 'sift-test', code: 'SIFT001' },
 			),
-			{ source: 'sift-test', code: 'SIFT001' },
-		)]);
+			Object.assign(
+				new vscode.Diagnostic(
+					new vscode.Range(1, 6, 1, 15),
+					'Unknown word (colourise)',
+					vscode.DiagnosticSeverity.Information,
+				),
+				{ source: 'cSpell' },
+			),
+		]);
 
 		try {
 			await vscode.commands.executeCommand('sift.siftProblems');
@@ -69,6 +93,7 @@ suite('Extension Test Suite', () => {
 			);
 			const editor = findSiftEditor();
 			assert.ok(editor);
+			assert.equal(editor.document.getText().includes('colourise'), false);
 			await editor.edit(edit => edit.replace(
 				fullDocumentRange(editor.document),
 				'\nconst fixed = true;',
@@ -77,7 +102,7 @@ suite('Extension Test Suite', () => {
 			await waitFor(() =>
 				vscode.workspace.textDocuments.find(
 					document => document.uri.toString() === sourceUri.toString(),
-				)?.getText() === 'const fixed = true;\n',
+				)?.getText() === 'const fixed = true;\nconst colourise = true;\n',
 			);
 
 			diagnostics.delete(sourceUri);

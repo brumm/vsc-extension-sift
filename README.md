@@ -18,6 +18,8 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 
 Diff views include staged and unstaged tracked changes, untracked files as additions, renames, and read-only deleted-line annotations. Leading FFF path constraints filter changed files. Remaining query text filters current-side changed lines. The default base is the current `HEAD` commit.
 
+`sift.problems.exclude` removes diagnostics from **Sift Problems** using regular-expression rules over `source`, `message`, and `code`. By default, Sift excludes `cSpell` diagnostics whose message starts with `Unknown word`. Set the option to `[]` to include them.
+
 ## Local setup
 
 After installing dependencies, run `pnpm run install-local` once and restart VS Code. The script links this checkout into VS Code's extension directory and adds Sift to the existing `enable-proposed-api` runtime argument without replacing other settings. On macOS, current VS Code releases read this file from `~/.vscode/argv.json`.

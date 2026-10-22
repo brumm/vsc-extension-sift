@@ -2024,16 +2024,21 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       },
     ),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration('files.exclude')) {
-        return
-      }
       for (const session of sessions.values()) {
         if (
-          session.target.kind === 'project' ||
-          session.target.kind === 'paths' ||
-          session.target.kind === 'diff'
+          event.affectsConfiguration('files.exclude') &&
+          (
+            session.target.kind === 'project' ||
+            session.target.kind === 'paths' ||
+            session.target.kind === 'diff'
+          )
         ) {
           scheduleRefresh(session)
+        } else if (
+          event.affectsConfiguration('sift.problems.exclude') &&
+          session.target.kind === 'problems'
+        ) {
+          scheduleRefresh(session, { silentWhenDirty: true })
         }
       }
     }),
