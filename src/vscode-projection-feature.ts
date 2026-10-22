@@ -1325,6 +1325,30 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     )
   }
 
+  /**
+   * The editor group that shows source previews. The remembered column is
+   * runtime-only, so after a restart (or when the user moves tabs) it can be
+   * missing or point at the Sift editor's own group; previews would then
+   * replace the Sift tab in its group on every cursor move. Prefer another
+   * existing group, else open a new one beside the Sift editor.
+   */
+  const resolveSourceViewColumn = (
+    runtime: FilterSessionRuntime,
+    projectionEditor: vscode.TextEditor,
+  ): vscode.ViewColumn => {
+    const ownColumn = projectionEditor.viewColumn
+    const columns = vscode.window.tabGroups.all.map((group) => group.viewColumn)
+    if (
+      runtime.sourceViewColumn !== undefined &&
+      runtime.sourceViewColumn !== ownColumn &&
+      columns.includes(runtime.sourceViewColumn)
+    ) {
+      return runtime.sourceViewColumn
+    }
+    return columns.find((column) => column !== ownColumn) ??
+      vscode.ViewColumn.Beside
+  }
+
   const revealSourceForSelection = async (
     editor: vscode.TextEditor,
   ): Promise<void> => {
@@ -1351,25 +1375,29 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     const generation = (runtime.sourceRevealGeneration ?? 0) + 1
     runtime.sourceRevealGeneration = generation
     const sourceUri = vscode.Uri.parse(source.uri)
+    const sourceViewColumn = resolveSourceViewColumn(runtime, editor)
     const visibleSourceEditor = vscode.window.visibleTextEditors.find(
       (candidate) =>
         candidate.document.uri.toString() === sourceUri.toString() &&
-        (
-          runtime.sourceViewColumn === undefined ||
-          candidate.viewColumn === runtime.sourceViewColumn
-        ),
+        candidate.viewColumn === sourceViewColumn,
     )
 
     if (session.target.kind === 'file') {
-      if (!visibleSourceEditor) {
+      const fileEditor = visibleSourceEditor ??
+        vscode.window.visibleTextEditors.find(
+          (candidate) =>
+            candidate.document.uri.toString() === sourceUri.toString() &&
+            candidate.viewColumn !== editor.viewColumn,
+        )
+      if (!fileEditor) {
         return
       }
-      const line = Math.min(source.line, visibleSourceEditor.document.lineCount - 1)
-      visibleSourceEditor.revealRange(
+      const line = Math.min(source.line, fileEditor.document.lineCount - 1)
+      fileEditor.revealRange(
         new vscode.Range(line, 0, line, 0),
         vscode.TextEditorRevealType.InCenter,
       )
-      highlightSourceLine(visibleSourceEditor, line)
+      highlightSourceLine(fileEditor, line)
       return
     }
 
@@ -1384,11 +1412,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     )
     const selection = new vscode.Selection(line, character, line, character)
     const sourceEditor = await vscode.window.showTextDocument(document, {
-      viewColumn: runtime.sourceViewColumn,
+      viewColumn: sourceViewColumn,
       preserveFocus: true,
       preview: true,
       selection,
     })
+    runtime.sourceViewColumn = sourceEditor.viewColumn
     if (runtime.sourceRevealGeneration !== generation) {
       if (runtime.closed && !runtime.preserveSourcePreview) {
         void closePreviewTab(sourceUri.toString(), sourceEditor.viewColumn)
