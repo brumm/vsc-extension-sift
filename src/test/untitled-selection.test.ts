@@ -62,6 +62,56 @@ suite('Untitled selection', () => {
 			await rm(rootPath, { recursive: true, force: true });
 		}
 	});
+
+	// Intentional: changing the query moves the cursor to the first result,
+	// and the source preview follows it, so the preview always reflects the
+	// best match for the current query.
+	test('Sift Project previews the first result after a query change', async function () {
+		this.timeout(10_000);
+		const rootPath = await mkdtemp(join(tmpdir(), 'sift-first-result-'));
+		const rootUri = vscode.Uri.file(rootPath);
+		await writeFile(join(rootPath, 'a.txt'), 'beta delta\n');
+		await writeFile(join(rootPath, 'b.txt'), 'delta\n');
+		await replaceWorkspaceFolders({ uri: rootUri });
+
+		try {
+			const source = await vscode.window.showTextDocument(
+				vscode.Uri.joinPath(rootUri, 'a.txt'),
+				{ viewColumn: vscode.ViewColumn.One },
+			);
+			source.selection = new vscode.Selection(0, 0, 0, 'beta'.length);
+			await vscode.commands.executeCommand('sift.siftProject');
+			await waitFor(() => /beta delta/.test(findSiftEditor()?.document.getText() ?? ''));
+
+			const siftEditor = findSiftEditor();
+			assert.ok(siftEditor);
+			await vscode.window.showTextDocument(siftEditor.document, siftEditor.viewColumn);
+			const line = siftEditor.document.getText().split('\n')
+				.findIndex(text => text === 'beta delta');
+			const start = 'beta '.length;
+			siftEditor.selection = new vscode.Selection(line, start, line, start + 'delta'.length);
+			await vscode.commands.executeCommand('sift.useSelectionAsQuery');
+
+			const firstResult = (): string | undefined => findSiftEditor()?.document
+				.getText()
+				.split('\n')
+				.find(text => text.trim() !== '');
+			const previewText = (): string | undefined => vscode.window.visibleTextEditors
+				.find(editor =>
+					editor.document.uri.scheme === 'file' &&
+					editor.viewColumn === vscode.ViewColumn.One,
+				)
+				?.document.lineAt(0).text;
+			await waitFor(() =>
+				/^delta$/m.test(findSiftEditor()?.document.getText() ?? '') &&
+				previewText() === firstResult(),
+			);
+		} finally {
+			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+			await replaceWorkspaceFolders();
+			await rm(rootPath, { recursive: true, force: true });
+		}
+	});
 });
 
 async function replaceWorkspaceFolders(

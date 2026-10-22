@@ -1035,8 +1035,11 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     if (!preserveEditorState) {
       runtime.resetEditorPosition = true
     }
-    // While capturing, the cursor marks the end of the captured query text;
-    // restoreAnchors resets it once the refreshed projection arrives.
+    // A query change moves the cursor to the top, and restoreAnchors does so
+    // again once the new results arrive. Intentional: the selection change
+    // makes the source preview follow the first result as the user types.
+    // While capturing, the cursor marks the end of the captured query text,
+    // so leave it alone until the capture ends.
     if (!preserveEditorState && !runtime.queryCapture) {
       for (const editor of vscode.window.visibleTextEditors) {
         if (editor.document.uri.toString() === runtime.virtualUri.toString()) {
