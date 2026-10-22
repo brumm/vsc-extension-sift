@@ -41,6 +41,7 @@ interface FilterSessionRuntime {
   sourceRevealGeneration?: number
   resetEditorPosition?: boolean
   refreshTimer?: NodeJS.Timeout
+  refreshDueAt?: number
   pendingRefresh?: { preserveEditorState: boolean; silentWhenDirty: boolean }
   renderTimer?: NodeJS.Timeout
   decorateTimer?: NodeJS.Timeout
@@ -1063,13 +1064,31 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         preserveEditorState && (pending?.preserveEditorState ?? true),
       silentWhenDirty: silentWhenDirty && (pending?.silentWhenDirty ?? true),
     }
+    // Query changes refresh quickly. File-watcher-driven refreshes of
+    // project, path and diff views wait longer, and no refresh postpones a
+    // pending one, so a burst of file events (a build, a checkout) refreshes
+    // at most once per window instead of once per event.
+    const watcherDriven = !force && (
+      session.target.kind === 'project' ||
+      session.target.kind === 'paths' ||
+      session.target.kind === 'diff'
+    )
+    const delay = watcherDriven
+      ? 300
+      : session.target.kind === 'project' ? 120 : 30
+    const dueAt = Math.min(
+      Date.now() + delay,
+      runtime.refreshTimer ? runtime.refreshDueAt ?? Infinity : Infinity,
+    )
     if (runtime.refreshTimer) {
       clearTimeout(runtime.refreshTimer)
     }
     runtime.pendingRefresh = merged
+    runtime.refreshDueAt = dueAt
     runtime.refreshTimer = setTimeout(
       () => {
         runtime.refreshTimer = undefined
+        runtime.refreshDueAt = undefined
         runtime.pendingRefresh = undefined
         void refresh(
           session,
@@ -1077,7 +1096,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           merged.silentWhenDirty,
         )
       },
-      session.target.kind === 'project' ? 120 : 30,
+      Math.max(0, dueAt - Date.now()),
     )
   }
 
