@@ -484,6 +484,21 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     await vscode.commands.executeCommand('workbench.action.closeActiveEditor')
   }
 
+  const hasOpenTab = (uri: vscode.Uri): boolean =>
+    vscode.window.tabGroups.all.some((group) =>
+      group.tabs.some(
+        (tab) =>
+          tab.input instanceof vscode.TabInputText &&
+          tab.input.uri.toString() === uri.toString(),
+      ),
+    )
+
+  // Persisted sessions whose tab was not restored (e.g. after a crash) are
+  // not refreshed at startup; they are refreshed if their tab shows up, and
+  // dropped otherwise.
+  const sessionsAwaitingTab = new Set<string>()
+  const orphanedSessionGraceMs = 10_000
+
   const closeSession = (uri: vscode.Uri): void => {
     const id = sessionId(uri)
     const runtime = sessionRuntimes.get(id)
@@ -517,6 +532,7 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
       clearTimeout(runtime.queryCapture.timer)
     }
     provider.forget(uri)
+    sessionsAwaitingTab.delete(id)
     sessionRuntimes.delete(id)
     pendingAnchors.delete(id)
     wordWrapDisabledDocuments.delete(uri.toString())
@@ -2546,25 +2562,44 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
           continue
         }
         const uri = tab.input.uri
-        if (uri.scheme !== scheme) {
-          continue
-        }
-        const stillOpen = vscode.window.tabGroups.all.some((group) =>
-          group.tabs.some(
-            (candidate) =>
-              candidate.input instanceof vscode.TabInputText &&
-              candidate.input.uri.toString() === uri.toString(),
-          ),
-        )
-        if (!stillOpen) {
+        if (uri.scheme === scheme && !hasOpenTab(uri)) {
           closeSession(uri)
+        }
+      }
+      for (const tab of event.opened) {
+        if (
+          tab.input instanceof vscode.TabInputText &&
+          tab.input.uri.scheme === scheme &&
+          sessionsAwaitingTab.delete(sessionId(tab.input.uri))
+        ) {
+          const session = sessions.get(sessionId(tab.input.uri))
+          if (session) {
+            void refresh(session)
+          }
         }
       }
     }),
   )
 
   for (const session of sessions.values()) {
-    void refresh(session)
+    if (hasOpenTab(runtimeFor(session).virtualUri)) {
+      void refresh(session)
+    } else {
+      sessionsAwaitingTab.add(session.id)
+    }
+  }
+  if (sessionsAwaitingTab.size > 0) {
+    const pruneTimer = setTimeout(() => {
+      for (const id of sessionsAwaitingTab) {
+        const session = sessions.get(id)
+        if (session && !hasOpenTab(runtimeFor(session).virtualUri)) {
+          output.appendLine(`Dropping Sift session without an editor tab: ${id}`)
+          closeSession(runtimeFor(session).virtualUri)
+        }
+      }
+      sessionsAwaitingTab.clear()
+    }, orphanedSessionGraceMs)
+    context.subscriptions.push({ dispose: () => clearTimeout(pruneTimer) })
   }
   if (vscode.window.activeTextEditor) {
     void disableWordWrap(vscode.window.activeTextEditor)
