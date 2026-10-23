@@ -508,6 +508,25 @@ export class ProjectionDocument {
 		return { line: candidate.line, character: source.character };
 	}
 
+	/** The first content line of each file block, or its header when the block has no content. */
+	blockStarts(): number[] {
+		return this.rows.flatMap((row, line) => {
+			if (row.kind !== 'annotation' || row.role !== 'header') {
+				return [];
+			}
+			for (let next = line + 1; next < this.rows.length; next += 1) {
+				const candidate = this.rows[next];
+				if (candidate.kind === 'mapped' || candidate.role === 'deletion') {
+					return [next];
+				}
+				if (candidate.role === 'header' || candidate.role === 'spacer') {
+					break;
+				}
+			}
+			return [line];
+		});
+	}
+
 	acceptWorkingCopy(
 		workingCopy: string,
 		uriRenames: readonly ProjectionUriRename[] = [],

@@ -1578,6 +1578,37 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     focusQueryInput()
   }
 
+  const moveCursorToBlock = (direction: 'next' | 'previous'): void => {
+    const editor = vscode.window.activeTextEditor
+    const session = activeSession(sessions)
+    if (!editor || !session) {
+      return
+    }
+    const line = editor.selection.active.line
+    const starts = session.projection.blockStarts()
+    const target =
+      direction === 'next'
+        ? starts.find((start) => start > line)
+        : starts.filter((start) => start < line).at(-1)
+    if (target === undefined) {
+      return
+    }
+    const position = new vscode.Position(target, 0)
+    editor.selection = new vscode.Selection(position, position)
+    // Keep the file header above the target in view.
+    const headerLine = session.projection.rows[target - 1]?.kind ===
+      'annotation'
+      ? target - 1
+      : target
+    const range = new vscode.Range(headerLine, 0, target, 0)
+    const isVisible = editor.visibleRanges.some(
+      (visible) => visible.contains(range),
+    )
+    if (!isVisible) {
+      editor.revealRange(range, vscode.TextEditorRevealType.AtTop)
+    }
+  }
+
   provider.setWriteHandler(async (uri, content) => {
     const session = sessions.get(sessionId(uri))
     if (!session) {
@@ -2326,6 +2357,12 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
         }
         await vscode.commands.executeCommand('cursorDown')
       },
+    ),
+    vscode.commands.registerCommand('sift.cursorNextBlock', () =>
+      moveCursorToBlock('next'),
+    ),
+    vscode.commands.registerCommand('sift.cursorPreviousBlock', () =>
+      moveCursorToBlock('previous'),
     ),
     vscode.workspace.onDidChangeConfiguration((event) => {
       for (const session of sessions.values()) {

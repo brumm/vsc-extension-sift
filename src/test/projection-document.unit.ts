@@ -292,6 +292,47 @@ test('problem projection filters by source text and records match ranges', () =>
 	);
 });
 
+test('block starts point at the first content line of each file', () => {
+	const project = ProjectionDocument.forProject([
+		{ uri: 'file:///workspace/a.ts', relativePath: 'a.ts', line: 1, text: 'a1', matches: [] },
+		{ uri: 'file:///workspace/a.ts', relativePath: 'a.ts', line: 2, text: 'a2', matches: [] },
+		{ uri: 'file:///workspace/b.ts', relativePath: 'b.ts', line: 3, text: 'b', matches: [] },
+	]);
+	assert.deepEqual(project.blockStarts(), [1, 5]);
+
+	const diff = ProjectionDocument.forDiff([
+		{
+			uri: 'file:///workspace/a.ts',
+			relativePath: 'a.ts',
+			status: 'modified',
+			lines: [
+				{ kind: 'deleted', line: 0, text: 'old' },
+				{ kind: 'added', line: 0, text: 'new' },
+			],
+		},
+		{
+			relativePath: 'gone.ts',
+			status: 'deleted',
+			lines: [],
+		},
+		{
+			uri: 'file:///workspace/c.ts',
+			relativePath: 'c.ts',
+			status: 'added',
+			lines: [{ kind: 'added', line: 0, text: 'c' }],
+		},
+	], {
+		text: '',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	});
+	assert.deepEqual(diff.blockStarts(), [1, 4, 7]);
+
+	assert.deepEqual(ProjectionDocument.forPaths([]).blockStarts(), []);
+});
+
 test('diff projection filters current lines and maps them to editable sources', () => {
 	const projection = ProjectionDocument.forDiff([{
 		uri: 'file:///workspace/src/a.ts',

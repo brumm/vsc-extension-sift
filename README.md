@@ -14,6 +14,7 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 - Scope project queries with leading path constraints such as `*.ts`, `src/`, and `!test/`.
 - Edit existing result lines and save the changes back to their source files.
 - Open the mapped source location with **Cmd+Enter** or the editor status item.
+- Jump to the first line of the next or previous file with **Option+Down** and **Option+Up**.
 - Keep sifted views open across window reloads and source-file updates.
 
 Diff views include staged and unstaged tracked changes, untracked files as additions, renames, and read-only deleted-line annotations. Leading FFF path constraints filter changed files. Remaining query text filters current-side changed lines. The default base is the current `HEAD` commit.
