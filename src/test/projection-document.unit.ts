@@ -653,3 +653,28 @@ test('save planning rejects contradictory edits to a duplicated source line', ()
 	const plan = projection.planSave('\nfirst\nsecond');
 	assert.equal(plan.ok, false);
 });
+
+test('diff projection pairs deleted and added lines per hunk for word changes', () => {
+	const projection = ProjectionDocument.forDiff([{
+		uri: 'file:///workspace/a.ts',
+		relativePath: 'a.ts',
+		status: 'modified',
+		lines: [
+			{ kind: 'deleted', line: 1, text: 'let count = 1;', hunk: 0 },
+			{ kind: 'added', line: 1, text: 'let count = 2;', hunk: 0 },
+			{ kind: 'added', line: 2, text: 'let extra = 3;', hunk: 0 },
+			{ kind: 'added', line: 9, text: 'let count = 1;', hunk: 1 },
+		],
+	}], {
+		text: '',
+		matchCase: false,
+		wholeWord: false,
+		useRegex: false,
+		contextLines: 0,
+	});
+
+	assert.deepEqual(
+		projection.rows.map(row => row.wordChanges),
+		[undefined, [{ start: 12, end: 13 }], [{ start: 12, end: 13 }], undefined, undefined],
+	);
+});

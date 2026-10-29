@@ -176,12 +176,22 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
 
   const addedLineDecoration = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
-    backgroundColor: new vscode.ThemeColor('diffEditor.insertedTextBackground'),
+    backgroundColor: new vscode.ThemeColor('diffEditor.insertedLineBackground'),
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
 
   const deletedLineDecoration = vscode.window.createTextEditorDecorationType({
     isWholeLine: true,
+    backgroundColor: new vscode.ThemeColor('diffEditor.removedLineBackground'),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
+  const addedWordDecoration = vscode.window.createTextEditorDecorationType({
+    backgroundColor: new vscode.ThemeColor('diffEditor.insertedTextBackground'),
+    rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+  })
+
+  const deletedWordDecoration = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor('diffEditor.removedTextBackground'),
     rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
   })
@@ -550,6 +560,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     editor.setDecorations(matchHighlightDecoration, [])
     editor.setDecorations(addedLineDecoration, [])
     editor.setDecorations(deletedLineDecoration, [])
+    editor.setDecorations(addedWordDecoration, [])
+    editor.setDecorations(deletedWordDecoration, [])
     editor.setDecorations(hunkSeparatorDecoration, [])
   }
 
@@ -765,6 +777,28 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
                 },
               },
             }]
+          : [],
+      ),
+    )
+    editor.setDecorations(
+      addedWordDecoration,
+      session.projection.rows.flatMap((row, line) =>
+        row.kind === 'mapped' &&
+        row.wordChanges &&
+        editor.document.lineAt(line).text === row.baseline
+          ? row.wordChanges.map(
+              (change) => new vscode.Range(line, change.start, line, change.end),
+            )
+          : [],
+      ),
+    )
+    editor.setDecorations(
+      deletedWordDecoration,
+      session.projection.rows.flatMap((row, line) =>
+        row.kind === 'annotation' && row.role === 'deletion' && row.wordChanges
+          ? row.wordChanges.map(
+              (change) => new vscode.Range(line, change.start, line, change.end),
+            )
           : [],
       ),
     )
@@ -1786,6 +1820,8 @@ export function installProjectionFeature(context: vscode.ExtensionContext): void
     matchHighlightDecoration,
     addedLineDecoration,
     deletedLineDecoration,
+    addedWordDecoration,
+    deletedWordDecoration,
     hunkSeparatorDecoration,
     sourceLineHighlightDecoration,
     filterInsets,

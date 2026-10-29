@@ -17,7 +17,7 @@ Sift creates focused, editable views of matching lines in an editor or across a 
 - Jump to the first line of the next or previous file with **Option+Down** and **Option+Up**.
 - Keep sifted views open across window reloads and source-file updates.
 
-Diff views include staged and unstaged tracked changes, untracked files as additions, renames, and read-only deleted-line annotations. Leading FFF path constraints filter changed files. Remaining query text filters current-side changed lines. The default base is the current `HEAD` commit.
+Diff views include staged and unstaged tracked changes, untracked files as additions, renames, and read-only deleted-line annotations. Within each hunk, paired deleted and added lines highlight the changed words. Leading FFF path constraints filter changed files. Remaining query text filters current-side changed lines. The default base is the current `HEAD` commit.
 
 `sift.problems.exclude` removes diagnostics from **Sift Problems** using regular-expression rules over `source`, `message`, and `code`. By default, Sift excludes `cSpell` diagnostics whose message starts with `Unknown word`. Set the option to `[]` to include them.
 

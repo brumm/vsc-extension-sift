@@ -1,3 +1,5 @@
+import { diffWords } from './word-diff';
+
 export interface FilterQuery {
 	text: string;
 	matchCase: boolean;
@@ -44,6 +46,7 @@ export type ProjectionRow =
 		matches?: readonly FilterMatch[];
 		problems?: readonly ProjectionProblem[];
 		change?: 'added';
+		wordChanges?: readonly FilterMatch[];
 		hunkStart?: boolean;
 	}
 	| {
@@ -54,6 +57,7 @@ export type ProjectionRow =
 		sourceUri?: string;
 		sourceLine?: number;
 		changeStatus?: DiffProjectionFile['status'];
+		wordChanges?: readonly FilterMatch[];
 		hunkStart?: boolean;
 	};
 
@@ -357,6 +361,7 @@ export class ProjectionDocument {
 				sourceUri: file.uri,
 				changeStatus: file.status,
 			});
+			const wordChanges = pairWordChanges(file.lines);
 			let visibleHunk: number | undefined;
 			for (const line of visibleLines) {
 				const hunk = line.hunk ?? 0;
@@ -370,6 +375,7 @@ export class ProjectionDocument {
 						role: 'deletion',
 						label: 'Deleted line',
 						sourceLine: line.line,
+						wordChanges: wordChanges.get(line),
 						hunkStart,
 					});
 					continue;
@@ -384,6 +390,7 @@ export class ProjectionDocument {
 					baseline: line.text,
 					matches: hasContentFilter ? findMatches(line.text) : [],
 					change: 'added',
+					wordChanges: wordChanges.get(line),
 					hunkStart,
 				});
 			}
@@ -653,6 +660,33 @@ export function findFilterMatches(
 	filter: FilterQuery,
 ): FilterMatch[] {
 	return makeFilterMatchFinder(filter)(line);
+}
+
+type DiffProjectionLine = DiffProjectionFile['lines'][number];
+
+// Git emits each hunk's deletions before its additions, so the nth deleted
+// line is compared with the nth added line of the same hunk.
+function pairWordChanges(
+	lines: readonly DiffProjectionLine[],
+): Map<DiffProjectionLine, readonly FilterMatch[]> {
+	const hunks = new Map<number, { deleted: DiffProjectionLine[]; added: DiffProjectionLine[] }>();
+	for (const line of lines) {
+		const hunk = line.hunk ?? 0;
+		const group = hunks.get(hunk) ?? { deleted: [], added: [] };
+		hunks.set(hunk, group);
+		group[line.kind].push(line);
+	}
+	const changes = new Map<DiffProjectionLine, readonly FilterMatch[]>();
+	for (const { deleted, added } of hunks.values()) {
+		for (let index = 0; index < Math.min(deleted.length, added.length); index++) {
+			const diff = diffWords(deleted[index].text, added[index].text);
+			if (diff) {
+				changes.set(deleted[index], diff.deleted);
+				changes.set(added[index], diff.added);
+			}
+		}
+	}
+	return changes;
 }
 
 export function makeFilterMatchFinder(
